@@ -1,0 +1,2877 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>The Holy Toast 3D Experience</title>
+    <style>
+      
+      @keyframes pulse {
+        0%, 100% { opacity: 0.5; }
+        50% { opacity: 1; }
+      }
+      @keyframes intensePulse {
+        0%, 100% { opacity: 0.8; }
+        50% { opacity: 1; }
+      }
+      @keyframes float {
+        0%, 100% { transform: translateY(0px) rotate(0deg); }
+        50% { transform: translateY(-20px) rotate(2deg); }
+      }
+      @keyframes cinematicFloat {
+        0%, 100% { transform: translateY(0px); }
+        50% { transform: translateY(-30px); }
+      }
+      @keyframes cinematicGlow {
+        from { filter: drop-shadow(0 0 30px rgba(255, 215, 0, 0.8)); }
+        to { filter: drop-shadow(0 0 60px rgba(255, 215, 0, 1)); }
+      }
+      @keyframes cinematicPulse {
+        0%, 100% { opacity: 0.8; transform: scale(1); }
+        50% { opacity: 1; transform: scale(1.02); }
+      }
+      @keyframes cinematicSweep {
+        0% { transform: translateX(-100%) skewX(-15deg); }
+        100% { transform: translateX(100vw) skewX(-15deg); }
+      }
+      @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+      @keyframes fadeInUp {
+        from { opacity: 0; transform: translateY(30px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+      @keyframes bounce {
+        0%, 20%, 50%, 80%, 100% { transform: translateY(0); }
+        40% { transform: translateY(-10px); }
+        60% { transform: translateY(-5px); }
+      }
+      @keyframes shake {
+        0%, 100% { transform: translateX(0); }
+        25% { transform: translateX(-5px); }
+        75% { transform: translateX(5px); }
+      }
+    </style>
+    <script type="importmap">
+      {
+        "imports": {
+          "react": "https://esm.sh/react@^19.1.0",
+          "react-dom/": "https://esm.sh/react-dom@^19.1.0/",
+          "react/": "https://esm.sh/react@^19.1.0/",
+          "@react-three/fiber": "https://esm.sh/@react-three/fiber@^9.1.2",
+          "three": "https://esm.sh/three@^0.177.0",
+          "@react-three/drei": "https://esm.sh/@react-three/drei@^10.3.0",
+          "three/": "https://esm.sh/three@^0.177.0/"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module">
+      import React, { useEffect, useRef, useState } from "react";
+      import { createRoot } from "react-dom/client";
+      // Audio Context Management Utility
+class AudioContextManager {
+  static instance = null;
+  static context = null;
+  static isInitialized = false;
+  
+  static async getContext() {
+    if (!this.context) {
+      try {
+        this.context = new (window.AudioContext || window.webkitAudioContext)();
+        console.log("🎵 AudioContext created successfully");
+      } catch (error) {
+        console.error("❌ AudioContext creation failed:", error);
+        return null;
+      }
+    }
+    
+    if (this.context.state === 'suspended') {
+      try {
+        await this.context.resume();
+        console.log("🎵 AudioContext resumed successfully");
+      } catch (error) {
+        console.error("❌ AudioContext resume failed:", error);
+      }
+    }
+    
+    this.isInitialized = true;
+    return this.context;
+  }
+  
+  static async ensureUnlocked() {
+    const context = await this.getContext();
+    if (!context) return false;
+    
+    if (context.state === 'suspended') {
+      // Create silent buffer to unlock
+      const buffer = context.createBuffer(1, 1, 22050);
+      const source = context.createBufferSource();
+      source.buffer = buffer;
+      source.connect(context.destination);
+      source.start();
+      
+      try {
+        await context.resume();
+        console.log("🎵 AudioContext unlocked successfully");
+        return true;
+      } catch (error) {
+        console.error("❌ AudioContext unlock failed:", error);
+        return false;
+      }
+    }
+    
+    return true;
+  }
+  
+  static dispose() {
+    if (this.context && this.context.state !== 'closed') {
+      this.context.close();
+      this.context = null;
+      this.isInitialized = false;
+      console.log("🎵 AudioContext disposed");
+    }
+  }
+}
+// Enhanced audio loading with multiple fallback URLs
+const AUDIO_SOURCES = [
+  "https://cdn.jsdelivr.net/gh/shapefuture/cheesus-temple@23aa1ce/santa_maria.mp3",
+  "https://raw.githubusercontent.com/shapefuture/cheesus-temple/23aa1ce/santa_maria.mp3",
+  // Add more fallback URLs as needed
+];
+async function loadAudioWithFallback(audioElement) {
+  for (let i = 0; i < AUDIO_SOURCES.length; i++) {
+    try {
+      console.log(`🎵 Trying audio source ${i + 1}/${AUDIO_SOURCES.length}`);
+      audioElement.src = AUDIO_SOURCES[i];
+      
+      await new Promise((resolve, reject) => {
+        const timeoutId = setTimeout(() => reject(new Error('Timeout')), 8000);
+        
+        audioElement.addEventListener('canplaythrough', () => {
+          clearTimeout(timeoutId);
+          resolve();
+        }, { once: true });
+        
+        audioElement.addEventListener('error', () => {
+          clearTimeout(timeoutId);
+          reject(new Error('Load failed'));
+        }, { once: true });
+        
+        audioElement.load();
+      });
+      
+      console.log(`🎵 Audio loaded successfully from source ${i + 1}`);
+      return true;
+      
+    } catch (error) {
+      console.warn(`🎵 Audio source ${i + 1} failed:`, error.message);
+      if (i === AUDIO_SOURCES.length - 1) {
+        throw new Error('All audio sources failed');
+      }
+    }
+  }
+}
+// Error Boundary Component
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error, errorInfo) {
+    console.error("🍞 Error Boundary: Caught error:", error, errorInfo);
+  }
+  render() {
+    if (this.state.hasError) {
+      return React.createElement(
+        "div",
+        {
+          style: {
+            position: "fixed",
+            top: 0,
+            left: 0,
+            width: "100vw",
+            height: "100vh",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "linear-gradient(135deg, #1a1a1a 0%, #2d1810 50%, #1a1a1a 100%)",
+            color: "#ffd700",
+            fontFamily: "system-ui, -apple-system, sans-serif",
+            textAlign: "center",
+            padding: "2rem",
+          },
+        },
+        React.createElement(
+          "div",
+          { style: { fontSize: "4rem", marginBottom: "1rem" } },
+          "🍞⚠️"
+        ),
+        React.createElement(
+          "h1",
+          { style: { fontSize: "2rem", marginBottom: "1rem" } },
+          "Sacred Temple Encountered an Error"
+        ),
+        React.createElement(
+          "p",
+          { style: { fontSize: "1.125rem", marginBottom: "2rem", opacity: 0.8 } },
+          "The divine experience has encountered a technical difficulty."
+        ),
+        React.createElement(
+          "button",
+          {
+            onClick: () => window.location.reload(),
+            style: {
+              padding: "1rem 2rem",
+              fontSize: "1rem",
+              background: "rgba(255, 215, 0, 0.1)",
+              color: "#ffd700",
+              border: "2px solid rgba(255, 215, 0, 0.3)",
+              borderRadius: "0.5rem",
+              cursor: "pointer",
+              transition: "all 0.3s ease",
+            },
+          },
+          "Restart Sacred Experience"
+        )
+      );
+    }
+    return this.props.children;
+  }
+}
+      // Premium Cinematic Loading Manager
+     // Enhanced Loading Manager
+class CinematicLoadingManager {
+  constructor(onProgress, onComplete) {
+    this.progress = 0;
+    this.messages = [];
+    this.onProgressCallback = onProgress;
+    this.onCompleteCallback = onComplete;
+    this.loadingSteps = [
+      "Initializing sacred protocols...",
+      "Blessing the holy textures...",
+      "Manifesting divine geometry...",
+      "Calibrating celestial lighting...",
+      "Tuning sacred harmonics...",
+      "Preparing mystical particles...",
+      "Finalizing temple experience...",
+      "Opening sacred doors...",
+    ];
+    this.currentStep = 0;
+    this.updateQueue = [];
+    this.isProcessing = false;
+    
+    console.log("🍞 Loading: Enhanced loading manager initialized");
+  }
+  updateProgress(increment, message) {
+    this.updateQueue.push({ increment, message, timestamp: Date.now() });
+    this.processQueue();
+  }
+  async processQueue() {
+    if (this.isProcessing || this.updateQueue.length === 0) return;
+    
+    this.isProcessing = true;
+    
+    while (this.updateQueue.length > 0) {
+      const update = this.updateQueue.shift();
+      
+      this.progress = Math.min(100, this.progress + update.increment);
+      
+      if (update.message) {
+        this.messages.push(`✨ ${update.message}`);
+        if (this.messages.length > 3) this.messages.shift();
+      }
+      
+      // Update step based on progress
+      const expectedStep = Math.floor((this.progress / 100) * this.loadingSteps.length);
+      if (expectedStep > this.currentStep && expectedStep < this.loadingSteps.length) {
+        this.currentStep = expectedStep;
+        this.messages.push(`🍞 ${this.loadingSteps[this.currentStep]}`);
+        if (this.messages.length > 3) this.messages.shift();
+      }
+      
+      // Call callback
+      this.onProgressCallback(this.progress, [...this.messages]);
+      
+      // Add small delay for smoother animation
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      if (this.progress >= 100) {
+        setTimeout(() => {
+          this.messages.push("🙏 Sacred temple ready for worship!");
+          this.onProgressCallback(100, [...this.messages]);
+          setTimeout(() => this.onCompleteCallback(), 800);
+        }, 200);
+        break;
+      }
+    }
+    
+    this.isProcessing = false;
+  }
+  setComplete() {
+    this.updateProgress(100 - this.progress, "Divine manifestation complete!");
+  }
+}
+
+      // Premium Texture Fitting Manager
+      class TextureFittingManager {
+        hero = null;
+        originalGeometry = null;
+        options;
+        currentOption = 0;
+        optionNameElement = null;
+        constructor() {
+          console.log("🍞 TextureFit: Initializing Texture Fitting Manager...");
+          this.options = [
+            { name: "Flipped, Shift & Tilted", type: "uv", scale: 1.15, rotation: Math.PI / 2, center: [0.5, 0.75] },
+          ];
+          // Defer getting the element until it's likely mounted
+          setTimeout(() => {
+            this.optionNameElement = document.getElementById("texture-fit-name");
+            this.updateUI();
+          }, 0);
+        }
+        setHero(hero) {
+          this.hero = hero;
+          this.originalGeometry = hero.geometry.clone(); // Store a pristine copy of the original geometry
+          this.applyCurrentOption();
+        }
+        switchOption(direction) {
+          if (!this.hero) return;
+          this.currentOption = (this.currentOption + direction + this.options.length) % this.options.length;
+          console.log(`🍞 TextureFit: Switched to option: ${this.options[this.currentOption].name}`);
+          this.applyCurrentOption();
+        }
+        updateUI() {
+          if (this.optionNameElement) {
+            this.optionNameElement.textContent = this.options[this.currentOption].name;
+          }
+        }
+        applyCurrentOption() {
+          if (!this.hero || !this.originalGeometry) return;
+          // Always start from a fresh copy of the original geometry to prevent cumulative transforms
+          this.hero.geometry.dispose();
+          this.hero.geometry = this.originalGeometry.clone();
+          const opt = this.options[this.currentOption];
+          this.updateUI();
+          this.applyUvTransform(opt.scale, opt.rotation, opt.center);
+        }
+        applyUvTransform(scale, rotation, center) {
+          const geom = this.hero.geometry;
+          const uvAttr = geom.attributes.uv;
+          const uv = uvAttr.array;
+          const [cx, cy] = center;
+          const s = scale;
+          const cosR = Math.cos(rotation);
+          const sinR = Math.sin(rotation);
+          for (let i = 0; i < uv.length; i += 2) {
+            let u = uv[i] - cx;
+            let v = uv[i + 1] - cy;
+            const ru = u * cosR - v * sinR;
+            const rv = u * sinR + v * cosR;
+            u = ru * s;
+            v = rv * s;
+            uv[i] = u + cx;
+            uv[i + 1] = v + cy;
+          }
+          uvAttr.needsUpdate = true;
+        }
+      }
+      function CheesusCrust() {
+        const canvasRef = useRef(null);
+         const audioManagerRef = useRef(null);
+        const [loadingProgress, setLoadingProgress] = useState(0);
+        const [isLoaded, setIsLoaded] = useState(false);
+        const [showEnterButton, setShowEnterButton] = useState(false);
+        const [hasEntered, setHasEntered] = useState(false);
+        const [loadingMessages, setLoadingMessages] = useState([]);
+        const [spellInput, setSpellInput] = useState("");
+        const [isSpellValid, setIsSpellValid] = useState(false);
+        const [showSpellHint, setShowSpellHint] = useState(false);
+        const [isEntering, setIsEntering] = useState(false);
+        const [cinematicPhase, setCinematicPhase] = useState(0);
+        // Sacred spells that unlock the temple
+        const sacredSpells = [
+          "blessed be the crust",
+          "holy bread awakens",
+          "cheesus saves us all",
+          "sacred toast rises",
+          "divine crumbs guide me",
+          "golden crust eternal",
+          "bread of life flows",
+          "toasted salvation",
+          "buttery bliss awaits",
+          "crumb by crumb we rise",
+        ];
+        const validateSpell = (input) => {
+          const cleanInput = input.toLowerCase().trim();
+          const isValid = sacredSpells.some((spell) => cleanInput.includes(spell) || spell.includes(cleanInput));
+          setIsSpellValid(isValid);
+          return isValid;
+        };
+        const handleSpellChange = (e) => {
+          const value = e.target.value;
+          setSpellInput(value);
+          setIsSpellValid(value.trim().length > 0);
+          setShowSpellHint(false); // optional: remove hint logic since any spell works
+        };
+ const handleEnterExperience = async () => {
+  if (!isSpellValid) return;
+  setIsEntering(true);
+  // Cinematic entrance sequence
+  const phases = [
+    "Validating sacred incantation...",
+    "Opening dimensional portal...",
+    "Aligning celestial bread slices...",
+    "Summoning the holy presence...",
+    "Entering the sacred realm...",
+  ];
+  for (let i = 0; i < phases.length; i++) {
+    setCinematicPhase(i);
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+  }
+  // Enhanced audio debugging
+  try {
+    console.log("🎵 Starting audio playback...");
+    console.log("🎵 Checking global reference:", {
+      hasWindow: typeof window !== 'undefined',
+      hasAudioManagerRef: !!window.audioManagerRef,
+      hasCurrentRef: !!(window.audioManagerRef && window.audioManagerRef.current),
+      isInitialized: !!(window.audioManagerRef && window.audioManagerRef.current && window.audioManagerRef.current.isInitialized)
+    });
+    
+    if (audioManagerRef.current && audioManagerRef.current.isInitialized) {
+      console.log("🎵 AudioManager found, attempting to play...");
+      const success = await audioManagerRef.current.play();
+      if (success) {
+        console.log("🎵 Audio started successfully");
+      } else {
+        console.warn("🎵 Audio failed to start but continuing...");
+      }
+    } else {
+      console.warn("🎵 AudioManager not available - continuing without audio");
+      
+      // Debug why it's not available
+      if (!audioManagerRef.current) {
+        console.error("❌ audioManagerRef.current is null/undefined");
+      } else if (!audioManagerRef.current.isInitialized) {
+        console.error("❌ AudioManager exists but not initialized");
+      }
+    }
+    
+  } catch (error) {
+    console.error("❌ Audio playback error:", error);
+  }
+  // Final delay before showing experience
+  await new Promise(resolve => setTimeout(resolve, 800));
+  setHasEntered(true);
+  setIsEntering(false);
+};
+
+
+const [isListening, setIsListening] = useState(false);
+const [recognition, setRecognition] = useState(null);
+        useEffect(() => {
+          console.log("🍞 Cheesus Temple: Component mounted, initializing premium sacred experience...");
+          // Add a small delay to ensure canvas is properly mounted
+          const initTimer = setTimeout(() => {
+            if (!canvasRef.current) {
+              console.error("🍞 Cheesus Temple: Canvas not found!");
+              return;
+            }
+            console.log("🍞 Cheesus Temple: Canvas found, starting initialization...");
+            const loadingManager = new CinematicLoadingManager(
+              (progress, messages) => {
+                setLoadingProgress(progress);
+                setLoadingMessages(messages);
+              },
+              () => {
+                setIsLoaded(true);
+                setTimeout(() => setShowEnterButton(true), 1000);
+              },
+            );
+            // Initialize the Three.js experience using the pre-installed modules
+            const initializeTemple = async () => {
+              try {
+                console.log("🍞 Temple: Loading Three.js modules with GLOBAL PATTERN...");
+                loadingManager.updateProgress(10, "Summoning the holy presence...");
+                // Import Three.js modules with GLOBAL MODULE PATTERN (Workaround #1)
+                const THREE = await import("three");
+                const { OrbitControls } = await import("three/addons/controls/OrbitControls.js");
+                const { GLTFLoader } = await import("three/addons/loaders/GLTFLoader.js");
+                const BufferGeometryUtils = await import("three/addons/utils/BufferGeometryUtils.js");
+                const { EffectComposer } = await import("three/addons/postprocessing/EffectComposer.js");
+                const { RenderPass } = await import("three/addons/postprocessing/RenderPass.js");
+                const { UnrealBloomPass } = await import("three/addons/postprocessing/UnrealBloomPass.js");
+                const { ShaderPass } = await import("three/addons/postprocessing/ShaderPass.js");
+                const { SMAAPass } = await import("three/addons/postprocessing/SMAAPass.js");
+                const { GammaCorrectionShader } = await import("three/addons/shaders/GammaCorrectionShader.js");
+                
+                // GLOBAL ASSIGNMENTS (Workaround #1)
+                window.THREE = THREE;
+                window.BufferGeometryUtils = BufferGeometryUtils;
+                window.GLTFLoader = GLTFLoader;
+                window.audioManagerRef = audioManagerRef;
+                console.log("🍞 Temple: All modules loaded successfully!");
+                loadingManager.updateProgress(15, "Three.js modules loaded successfully!");
+                // Smart Quality of Service System - Premium visuals with smart optimizations
+                class QualityOfService {
+                  level = 3;
+                  isMobile = false;
+                  constructor() {
+                    console.log("🍞 QoS: Initializing Smart Quality of Service system...");
+                    const mem = navigator.deviceMemory || 4;
+                    const cores = navigator.hardwareConcurrency || 4;
+                    const gpu = this.getGPUTier();
+                    console.log("🍞 QoS: Device capabilities - Memory:", mem, "GB, Cores:", cores, "GPU:", gpu);
+                    // Smart quality levels - maintain visual quality while optimizing performance
+                    if (mem < 3 || cores < 4 || gpu === "low") this.level = 1;
+                    else if (mem < 4 || cores < 6 || gpu === "mid") this.level = 2;
+                    else if (mem < 6 || cores < 8) this.level = 3;
+                    else this.level = 4; // Ultra quality for high-end devices
+                    this.isMobile = /Android|iPhone|iPad/i.test(navigator.userAgent);
+                    if (this.isMobile) this.level = Math.min(this.level, 2);
+                    console.log("🍞 QoS: Smart quality level set to:", this.level, "Mobile:", this.isMobile);
+                    this.testPerf();
+                    this.updateUI();
+                  }
+                  getGPUTier() {
+                    try {
+                      const canvas = document.createElement("canvas");
+                      const gl = canvas.getContext("webgl2") || canvas.getContext("webgl");
+                      if (!gl) return "low";
+                      const debugInfo = gl.getExtension("WEBGL_debug_renderer_info");
+                      if (!debugInfo) return "mid";
+                      const renderer = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL).toLowerCase();
+                      console.log("🍞 QoS: GPU Renderer:", renderer);
+                      if (/mali|adreno [0-5]|powervr/i.test(renderer)) return "low";
+                      if (/nvidia|radeon|arc|apple m[12]/i.test(renderer)) return "high";
+                      return "mid";
+                    } catch (e) {
+                      console.error("🍞 QoS: Error detecting GPU:", e);
+                      return "low";
+                    }
+                  }
+                  testPerf() {
+  console.log("🍞 QoS: Starting quick performance test...");
+  const startTime = performance.now();
+  let frames = 0;
+  const testLoop = () => {
+    frames++;
+    if (performance.now() - startTime < 500) {
+      requestAnimationFrame(testLoop);
+    } else {
+      const fps = frames / ((performance.now() - startTime) / 1000);
+      console.log("🍞 QoS: Performance test result:", fps.toFixed(1), "FPS");
+      if (fps < 30) this.level = Math.max(1, this.level - 1);
+      else if (fps > 60) this.level = Math.min(4, this.level + 1);
+      console.log("🍞 QoS: Adjusted quality level to:", this.level);
+      this.updateUI();
+    }
+  };
+  requestAnimationFrame(testLoop);
+}
+                  updateUI() {
+                    const qualityElement = document.getElementById("perf-quality");
+                    if (qualityElement) {
+                      qualityElement.textContent = this.level.toString();
+                    }
+                  }
+                  // Smart quality settings - maintain visual fidelity
+                  get pixelRatio() {
+                    return Math.min(devicePixelRatio, [1.0, 1.25, 1.5, 2.0][this.level - 1] || 1.0);
+                  }
+                  get shadowMapSize() {
+                    return [512, 1024, 2048, 2048][this.level - 1] || 1024;
+                  }
+                  get bloomStrength() {
+                    return [0.4, 0.6, 0.8, 1.0][this.level - 1] || 0.6;
+                  }
+                  get godraySamples() {
+                    return [20, 40, 60, 80][this.level - 1] || 40;
+                  }
+                  get fxaaEnabled() {
+                    return this.level >= 2;
+                  }
+                  get particleCount() {
+                    return [200, 500, 800, 1200][this.level - 1] || 500;
+                  }
+                  get corridorComplexity() {
+                    return [0.6, 0.8, 1.0, 1.2][this.level - 1] || 0.8;
+                  }
+                  get textureSize() {
+                    return [512, 1024, 1024, 2048][this.level - 1] || 1024;
+                  }
+                }
+                // Enhanced Performance Monitor
+                class PerformanceMonitor {
+                  startTime;
+                  fps;
+                  frameCount = 0;
+                  lastLogTime;
+                  constructor() {
+                    console.log("🍞 Perf: Initializing performance monitor...");
+                    this.startTime = performance.now();
+                    this.fps = { min: Number.POSITIVE_INFINITY, max: 0, sum: 0, n: 0 };
+                    this.lastLogTime = performance.now();
+                  }
+                  frame(dt) {
+                    if (dt <= 0) return;
+                    const fps = 1 / dt;
+                    this.fps.min = Math.min(this.fps.min, fps);
+                    this.fps.max = Math.max(this.fps.max, fps);
+                    this.fps.sum += fps;
+                    this.fps.n++;
+                    this.frameCount++;
+                    const fpsElement = document.getElementById("perf-fps");
+                    if (fpsElement) {
+                      fpsElement.textContent = fps.toFixed(0);
+                    }
+                    // Log performance every 5 seconds
+                    const now = performance.now();
+                    if (now - this.lastLogTime > 5000) {
+                      const avgFps = this.fps.n ? this.fps.sum / this.fps.n : 0;
+                      
+                      this.lastLogTime = now;
+                    }
+                  }
+                  report() {
+                    const avg = this.fps.n ? this.fps.sum / this.fps.n : 0;
+                    const report = {
+                      min: this.fps.min.toFixed(1),
+                      max: this.fps.max.toFixed(1),
+                      avg: avg.toFixed(1),
+                      frames: this.frameCount,
+                      runtime: ((performance.now() - this.startTime) / 1000).toFixed(1) + "s",
+                      ua: navigator.userAgent,
+                    };
+                    console.table(report);
+                    const data = JSON.stringify(report, null, 2);
+                    const blob = new Blob([data], { type: "application/json" });
+                    const a = Object.assign(document.createElement("a"), {
+                      href: URL.createObjectURL(blob),
+                      download: "cheesus-temple-perf-" + Date.now() + ".json",
+                    });
+                    a.click();
+                    URL.revokeObjectURL(a.href);
+                  }
+                }
+                const qos = new QualityOfService();
+                window.qos = qos; // GLOBAL ASSIGNMENT (Workaround #1)
+                const perf = new PerformanceMonitor();
+                // Make performance report available globally
+                window.perfReport = () => perf.report();
+                const PATHS = {
+                  GLB: "https://cdn.jsdelivr.net/gh/shapefuture/cheesus-temple@23aa1ce/toast_slice.glb",
+                  BREAD: "https://cdn.jsdelivr.net/gh/shapefuture/cheesus-temple@23aa1ce/bread_slice.jpg",
+                  FACE: "https://cdn.jsdelivr.net/gh/shapefuture/cheesus-temple@23aa1ce/cheesus_toast_face.jpg",
+                  AUDIO: "https://cdn.jsdelivr.net/gh/shapefuture/cheesus-temple@23aa1ce/santa_maria.mp3",
+                  SKY: "https://cdn.jsdelivr.net/gh/shapefuture/cheesus-temple@23aa1ce/Skybox2.webp",
+                };
+                const canvas = canvasRef.current;
+                if (!canvas) {
+                  throw new Error("Canvas element not found!");
+                }
+                console.log("🍞 Temple: Canvas element located.");
+                const precision = qos.isMobile ? "mediump" : "highp";
+                // Premium God Ray Shader with smart optimizations
+                const GodRayShader = {
+  uniforms: {
+    tDiffuse: { value: null },
+    lightPosition: { value: new THREE.Vector2(0.5, 0.5) },
+    exposure: { value: 1.4 },
+    decay: { value: 0.96 },
+    density: { value: 1.3 },
+    weight: { value: 0.7 },
+    samples: { value: Math.floor(qos.godraySamples / 2) },
+  },
+  vertexShader: `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: `
+    uniform sampler2D tDiffuse;
+    uniform vec2 lightPosition;
+    uniform float exposure;
+    uniform float decay;
+    uniform float density;
+    uniform float weight;
+    uniform int samples;
+    varying vec2 vUv;
+    void main() {
+      vec2 deltaTextCoord = vec2(vUv - lightPosition);
+      deltaTextCoord *= 1.0 / float(samples) * density;
+      vec2 coord = vUv;
+      float illuminationDecay = 1.0;
+      vec4 fragColor = vec4(0.0);
+      for (int i = 0; i < samples; i++) {
+        coord -= deltaTextCoord;
+        vec4 texel = texture2D(tDiffuse, coord);
+        texel *= illuminationDecay * weight;
+        fragColor += texel;
+        illuminationDecay *= decay;
+      }
+      fragColor *= exposure;
+      gl_FragColor = fragColor;
+    }
+  `
+};
+
+                // Premium Combined Shader with enhanced effects
+                const CombinedShader = {
+                  uniforms: {
+                    tDiffuse: { value: null },
+                    warmth: { value: 0.8 },
+                    offset: { value: 0.6 },
+                    dark: { value: 0.4 },
+                    time: { value: 0.0 },
+                    contrast: { value: 1.2 },
+                    saturation: { value: 1.3 },
+                  },
+                  vertexShader: `
+              varying vec2 vUv;
+              void main(){
+                vUv=uv;
+                gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);
+              }`,
+                  fragmentShader: `precision ${precision} float;
+              varying vec2 vUv;
+              uniform sampler2D tDiffuse;
+              uniform float warmth, offset, dark, time, contrast, saturation;
+              
+              vec3 adjustSaturation(vec3 color, float sat) {
+                float gray = dot(color, vec3(0.299, 0.587, 0.114));
+                return mix(vec3(gray), color, sat);
+              }
+              
+              void main(){
+                vec4 c=texture2D(tDiffuse,vUv);
+                
+                // Enhanced warmth with golden tones
+                c.r=min(1.0,c.r*(1.0+warmth*0.7));
+                c.g*=1.0+warmth*0.4;
+                c.b*=1.0-warmth*0.2;
+                
+                // Enhance contrast and saturation
+                c.rgb = (c.rgb - 0.5) * contrast + 0.5;
+                c.rgb = adjustSaturation(c.rgb, saturation);
+                
+                // Subtle breathing effect
+                float breath = sin(time * 0.3) * 0.03 + 1.0;
+                c.rgb *= breath;
+                
+                // Enhanced vignette with golden edge
+                float d=distance(vUv,vec2(0.5));
+                float vignette = 1.0-smoothstep(offset,1.4,d)*dark;
+                c.rgb*=vignette;
+                
+                // Add golden rim lighting
+                float rim = 1.0 - smoothstep(0.7, 1.0, d);
+                c.rgb += vec3(1.0, 0.8, 0.4) * rim * 0.1;
+                
+                gl_FragColor=c;
+              }`,
+                };
+                // Premium Audio Manager
+        
+class AudioManager {
+   constructor(hero, listener, loadingManager) {
+  console.log("🎵 AudioManager: Constructor called with:", {
+    hasHero: !!hero,
+    hasListener: !!listener,
+    hasLoadingManager: !!loadingManager
+  });
+  
+  this.hero = hero;
+  this.listener = listener;
+  this.loadingManager = loadingManager;
+  this.camera = null;
+  
+  // Mark as initialized immediately for iframe compatibility
+  this.isInitialized = true;
+  this.isPlaying = false;
+  this.audioReady = false;
+  
+  // ... rest of your existing constructor code ...
+  
+  console.log("🎵 AudioManager: Constructor completed successfully");
+  
+  // Initialize synchronously with fallback
+  this.initSync();
+}
+
+  initSync() {
+    try {
+      // Create audio element immediately
+      this.audio = new Audio();
+      this.audio.crossOrigin = 'anonymous';
+      this.audio.loop = true;
+      this.audio.volume = this.baseVolume;
+      this.audio.preload = 'metadata'; // Faster loading
+      
+      // Set audio source with primary URL
+      this.audio.src = "https://cdn.jsdelivr.net/gh/shapefuture/cheesus-temple@23aa1ce/santa_maria.mp3";
+      
+      // Setup event listeners for async loading
+      this.audio.addEventListener('canplaythrough', () => {
+        this.audioReady = true;
+        console.log("🎵 Audio ready for playback");
+        this.setupAudioContext();
+      }, { once: true });
+      
+      this.audio.addEventListener('error', () => {
+        console.warn("🎵 Primary audio source failed, trying fallback");
+        this.audio.src = "https://cdn.jsdelivr.net/gh/shapefuture/cheesus-temple@23aa1ce/santa_maria.mp3";
+      }, { once: true });
+      
+      // Start loading
+      this.audio.load();
+      
+      console.log("🎵 AudioManager: Synchronous setup complete");
+      
+      if (this.loadingManager) {
+        this.loadingManager.updateProgress(5, "Sacred audio ready!");
+      }
+      
+    } catch (error) {
+      console.error("❌ AudioManager sync init failed:", error);
+      this.setupMinimalFallback();
+    }
+  }
+  setupAudioContext() {
+    try {
+      // Only setup Web Audio API if audio is ready
+      if (!this.audioReady) return;
+      
+      // Create audio context on first user interaction
+      this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      
+      // Create source from audio element
+      this.source = this.audioContext.createMediaElementSource(this.audio);
+      
+      // Create gain node for volume control
+      this.gainNode = this.audioContext.createGain();
+      this.gainNode.gain.value = this.baseVolume;
+      
+      // Create analyser for frequency analysis
+      this.analyser = this.audioContext.createAnalyser();
+      this.analyser.fftSize = 128;
+      this.analyser.smoothingTimeConstant = 0.8;
+      
+      // Connect the chain
+      this.source.connect(this.analyser);
+      this.analyser.connect(this.gainNode);
+      this.gainNode.connect(this.audioContext.destination);
+      
+      console.log("🎵 Web Audio API chain established");
+      
+    } catch (error) {
+      console.warn("🎵 Web Audio API setup failed, using basic audio:", error);
+    }
+  }
+  setupMinimalFallback() {
+    // Minimal fallback for iframe environments
+    this.audio = new Audio();
+    this.audio.src = "https://cdn.jsdelivr.net/gh/shapefuture/cheesus-temple@23aa1ce/santa_maria.mp3";
+    this.audio.loop = true;
+    this.audio.volume = this.baseVolume;
+    this.audioReady = true;
+    console.log("🎵 Minimal fallback audio ready");
+  }
+  setCamera(camera) {
+    this.camera = camera;
+  }
+  async play() {
+    console.log("🎵 Play requested - audioReady:", this.audioReady, "isInitialized:", this.isInitialized);
+    
+    if (!this.isInitialized || !this.audio) {
+      console.warn("🎵 AudioManager not ready");
+      return false;
+    }
+    
+    try {
+      // Ensure audio context is unlocked
+      if (this.audioContext && this.audioContext.state === 'suspended') {
+        await this.audioContext.resume();
+      }
+      
+      // Wait for audio to be ready if not yet
+      if (!this.audioReady) {
+        console.log("🎵 Waiting for audio to be ready...");
+        await new Promise(resolve => {
+          const checkReady = () => {
+            if (this.audioReady || this.audio.readyState >= 2) {
+              this.audioReady = true;
+              resolve();
+            } else {
+              setTimeout(checkReady, 100);
+            }
+          };
+          checkReady();
+        });
+      }
+      
+      // Attempt to play
+      await this.audio.play();
+      this.isPlaying = true;
+      
+      console.log("🎵 Audio playback started successfully");
+      return true;
+      
+    } catch (error) {
+      console.error("❌ Audio playback failed:", error);
+      
+      // Try again with user gesture
+      try {
+        // Create a hidden button and click it to ensure user gesture
+        const button = document.createElement('button');
+        button.style.position = 'fixed';
+        button.style.top = '-100px';
+        button.style.left = '-100px';
+        button.style.opacity = '0';
+        document.body.appendChild(button);
+        
+        button.onclick = async () => {
+          try {
+            await this.audio.play();
+            this.isPlaying = true;
+            console.log("🎵 Audio started with user gesture");
+          } catch (e) {
+            console.error("❌ Audio failed even with user gesture:", e);
+          }
+        };
+        
+        button.click();
+        document.body.removeChild(button);
+        
+        return this.isPlaying;
+        
+      } catch (fallbackError) {
+        console.error("❌ All audio playback attempts failed:", fallbackError);
+        return false;
+      }
+    }
+  }
+  update(godPass, time) {
+    if (!this.isInitialized || !this.isPlaying) return;
+    
+    // Update frequency analysis
+    if (this.analyser) {
+      this.analyser.getByteFrequencyData(this.frequencyData);
+      this.bass = this.frequencyData[0] / 255;
+      this.mid = this.frequencyData[Math.floor(this.frequencyData.length / 4)] / 255;
+      this.high = this.frequencyData[Math.floor(this.frequencyData.length / 2)] / 255;
+    }
+    
+    // Update spatial positioning
+    this.updateSpatialPosition();
+    
+    // Update visual effects
+    this.updateVisualEffects(godPass, time);
+  }
+  updateSpatialPosition() {
+    if (!this.camera || !this.hero || !this.gainNode) return;
+    
+    const heroPos = this.hero.position;
+    const cameraPos = this.camera.position;
+    const distance = heroPos.distanceTo(cameraPos);
+    
+    // Apply distance-based volume
+    const volumeMultiplier = Math.max(0.1, Math.min(1, (this.maxDistance - distance) / this.maxDistance));
+    this.gainNode.gain.value = this.baseVolume * volumeMultiplier;
+    
+    this.lastDistance = distance;
+  }
+  updateVisualEffects(godPass, time) {
+    if (!godPass) return;
+    
+    const distanceMultiplier = Math.max(0.3, Math.min(1, (50 - this.lastDistance) / 50));
+    
+    // Update god ray effects based on audio
+    godPass.uniforms.density.value = 1.2 + (this.bass * 0.4) * distanceMultiplier;
+    godPass.uniforms.exposure.value = 1.2 + (this.mid * 0.6) * distanceMultiplier;
+    godPass.uniforms.weight.value = 0.6 + (this.high * 0.3) * distanceMultiplier;
+  }
+  setVolume(volume) {
+    this.baseVolume = Math.max(0, Math.min(1, volume));
+    if (this.audio) {
+      this.audio.volume = this.baseVolume;
+    }
+    if (this.gainNode) {
+      this.gainNode.gain.value = this.baseVolume;
+    }
+  }
+  pause() {
+    if (this.audio && this.isPlaying) {
+      this.audio.pause();
+      this.isPlaying = false;
+      console.log("⏸️ Audio paused");
+    }
+  }
+  dispose() {
+    this.pause();
+    
+    if (this.audio) {
+      this.audio.src = '';
+      this.audio.load();
+      this.audio = null;
+    }
+    
+    if (this.audioContext && this.audioContext.state !== 'closed') {
+      this.audioContext.close();
+    }
+    
+    this.isInitialized = false;
+    console.log("🎵 AudioManager disposed");
+  }
+}
+
+
+
+                // Premium Corridor Builder with GLOBAL MODULE PATTERN (Workaround #1)
+                class Corridor {
+                  async loadTextureSafe(url, fallback) {
+  return new Promise(res => {
+    new window.THREE.TextureLoader().load(
+      url,
+      tex => {                               // success ➜ return real texture
+        tex.wrapS = tex.wrapT = window.THREE.RepeatWrapping;
+        tex.anisotropy = 16;
+        res(tex);
+      },
+      undefined,                             // ignore onProgress
+      () => res(fallback())                  // error ➜ return procedural fallback
+    );
+  });
+}
+                  scene;
+                  loadingManager;
+                  constructor(scene, callback, loadingManager) {
+                    console.log("🍞 Corridor: Building premium sacred temple structure...");
+                    this.scene = scene;
+                    this.loadingManager = loadingManager;
+                    this.load(callback);
+                  }
+                 async load(callback) {
+  try {
+    console.log("🍞 Corridor: Loading premium toast slice geometry…");
+    this.loadingManager.updateProgress(5, "Loading sacred geometry…");
+    const gltfLoader = new window.GLTFLoader();
+    /* Meshopt (optional) */
+    try {
+      const { MeshoptDecoder } = await import("three/addons/libs/meshopt_decoder.module.js");
+      gltfLoader.setMeshoptDecoder(MeshoptDecoder);
+      console.log("🍞 Corridor: MeshoptDecoder loaded");
+    } catch { /* fine to continue without */ }
+    const gltf = await gltfLoader.loadAsync(PATHS.GLB);
+    this.loadingManager.updateProgress(10, "Sacred toast geometry loaded");
+    /* pick first mesh geometry or fall back */
+    let geometry = null;
+    gltf.scene.traverse(o => { if (o.isMesh && !geometry) geometry = o.geometry; });
+    if (!geometry) {
+      console.warn("🍞 Corridor: No geometry found, creating fallback");
+      geometry = this.createPremiumBreadGeometry();
+    }
+    /* ── NEW async bread-texture load ─────────────────────────────── */
+    console.log("🍞 Corridor: Loading bread texture asynchronously…");
+    this.loadingManager.updateProgress(5, "Loading bread textures…");
+    const breadTex = await this.loadTextureSafe(
+      PATHS.BREAD,
+      () => this.createPremiumBreadTexture()
+    );
+    const material = new THREE.MeshStandardMaterial({
+      map: breadTex,
+      color: 0xffeedd,
+      roughness: 0.8,
+      metalness: 0.1,
+      normalScale: new THREE.Vector2(0.5, 0.5)
+    });
+    this.loadingManager.updateProgress(10, "Bread textures blessed");
+    this.buildPremiumCorridor(geometry, material, callback);
+  } catch (err) {
+    console.error("🍞 Corridor: GLB load failed, using full fallback", err);
+    const geometry = this.createPremiumBreadGeometry();
+    const material = new THREE.MeshStandardMaterial({
+      map: this.createPremiumBreadTexture(),
+      normalMap: this.createBreadNormalMap(),
+      color: 0xffeedd,
+      roughness: 0.8,
+      metalness: 0.1
+    });
+    this.loadingManager.updateProgress(15, "Fallback geometry and textures ready");
+    this.buildPremiumCorridor(geometry, material, callback);
+  }
+}
+                  createPremiumBreadGeometry() {
+                    console.log("🍞 Corridor: Creating premium bread slice geometry");
+                    const shape = new window.THREE.Shape();
+                    const width = 1,
+                      height = 1,
+                      radius = 0.12;
+                    // Create premium bread slice shape with more detail
+                    shape.moveTo(-width / 2 + radius, -height / 2);
+                    shape.lineTo(width / 2 - radius, -height / 2);
+                    shape.quadraticCurveTo(width / 2, -height / 2, width / 2, -height / 2 + radius);
+                    shape.lineTo(width / 2, height / 2 - radius);
+                    shape.quadraticCurveTo(width / 2, height / 2, width / 2 - radius, height / 2);
+                    shape.lineTo(-width / 2 + radius, height / 2);
+                    shape.quadraticCurveTo(-width / 2, height / 2, -width / 2, height / 2 - radius);
+                    shape.lineTo(-width / 2, -height / 2 + radius);
+                    shape.quadraticCurveTo(-width / 2, -height / 2, -width / 2 + radius, -height / 2);
+                    const geometry = new window.THREE.ExtrudeGeometry(shape, {
+                      depth: 0.15,
+                      bevelEnabled: true,
+                      bevelThickness: 0.04,
+                      bevelSize: 0.04,
+                      bevelSegments: 8,
+                      curveSegments: 16,
+                    });
+                    // Make procedural geometry lie down to match the likely orientation of the GLB.
+                    geometry.rotateX(-Math.PI / 2);
+                    return geometry;
+                  }
+                  createPremiumBreadTexture() {
+                    console.log("🍞 Corridor: Creating premium procedural bread texture");
+                    const size = window.qos.textureSize;
+                    const canvas = document.createElement("canvas");
+                    canvas.width = size;
+                    canvas.height = size;
+                    const ctx = canvas.getContext("2d");
+                    // Premium bread base with gradient
+                    const gradient = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+                    gradient.addColorStop(0, "#F4E4BC");
+                    gradient.addColorStop(0.4, "#E6D3A3");
+                    gradient.addColorStop(0.8, "#D2B48C");
+                    gradient.addColorStop(1, "#C19A6B");
+                    ctx.fillStyle = gradient;
+                    ctx.fillRect(0, 0, size, size);
+                    // Add premium bread texture details
+                    for (let i = 0; i < size * 2; i++) {
+                      const x = Math.random() * size;
+                      const y = Math.random() * size;
+                      const radius = Math.random() * 3 + 1;
+                      const opacity = Math.random() * 0.3 + 0.1;
+                      const hue = 30 + Math.random() * 25;
+                      ctx.fillStyle = `hsla(${hue}, 70%, ${25 + Math.random() * 20}%, ${opacity})`;
+                      ctx.beginPath();
+                      ctx.arc(x, y, radius, 0, Math.PI * 2);
+                      ctx.fill();
+                    }
+                    // Add crust effect
+                    const crustGradient = ctx.createLinearGradient(0, 0, 0, size);
+                    crustGradient.addColorStop(0, "rgba(139, 69, 19, 0.3)");
+                    crustGradient.addColorStop(0.1, "rgba(139, 69, 19, 0.1)");
+                    crustGradient.addColorStop(0.9, "rgba(139, 69, 19, 0.1)");
+                    crustGradient.addColorStop(1, "rgba(139, 69, 19, 0.3)");
+                    ctx.fillStyle = crustGradient;
+                    ctx.fillRect(0, 0, size, size);
+                    const texture = new window.THREE.CanvasTexture(canvas);
+                    texture.wrapS = texture.wrapT = window.THREE.RepeatWrapping;
+                    texture.anisotropy = 16;
+                    return texture;
+                  }
+                  createBreadNormalMap() {
+                    const size = window.qos.textureSize / 2;
+                    const canvas = document.createElement("canvas");
+                    canvas.width = size;
+                    canvas.height = size;
+                    const ctx = canvas.getContext("2d");
+                    // Create normal map for bread texture
+                    ctx.fillStyle = "#8080ff";
+                    ctx.fillRect(0, 0, size, size);
+                    for (let i = 0; i < size; i++) {
+                      const x = Math.random() * size;
+                      const y = Math.random() * size;
+                      const radius = Math.random() * 2 + 1;
+                      const intensity = Math.random() * 0.3 + 0.1;
+                      const gradient = ctx.createRadialGradient(x, y, 0, x, y, radius);
+                      gradient.addColorStop(0, `rgba(128, 128, 255, ${intensity})`);
+                      gradient.addColorStop(1, "rgba(128, 128, 255, 0)");
+                      ctx.fillStyle = gradient;
+                      ctx.beginPath();
+                      ctx.arc(x, y, radius, 0, Math.PI * 2);
+                      ctx.fill();
+                    }
+                    const texture = new window.THREE.CanvasTexture(canvas);
+                    texture.wrapS = texture.wrapT = window.THREE.RepeatWrapping;
+                    return texture;
+                  }
+                  async buildPremiumCorridor(geometry, material, callback) {
+                    console.log("🍞 Corridor: Building premium temple corridor with standing slices...");
+                    this.loadingManager.updateProgress(5, "Constructing sacred corridor...");
+                    // Smart corridor dimensions based on quality
+                    const complexity = window.qos.corridorComplexity * 1; 
+                    const X = Math.floor(8 * complexity);
+                    const Y = Math.floor(8 * complexity);
+                    const Z = Math.floor(30 * complexity);
+                    const SP = 1.2;
+                    console.log(`🍞 Corridor: Premium temple dimensions: ${X}x${Y}x${Z} with complexity ${complexity}`);
+                    const geometries = [];
+                    let totalSlices = 0;
+                    // Build premium corridor. Assumes geometry is initially "lying down" on the XZ plane.
+                    for (let z = 0; z <= Z; z++) {
+                      // FLOOR - lie flat, face down.
+                      for (let x = -X; x <= X; x += 1) {
+                        if ((x + z) % 3 === 0) continue;
+                        const m = new THREE.Matrix4().makeRotationX(Math.PI).setPosition(x * SP, -Y * SP, -z * SP);
+                        geometries.push(geometry.clone().applyMatrix4(m));
+                        totalSlices++;
+                      }
+                      // CEILING - lie flat, face up.
+                      for (let x = -X; x <= X; x += 1) {
+                        if ((x + z) % 4 === 0) continue;
+                        const m = new THREE.Matrix4().setPosition(x * SP, Y * SP, -z * SP);
+                        geometries.push(geometry.clone().applyMatrix4(m));
+                        totalSlices++;
+                      }
+                      // WALLS - stand upright, facing outward (flipped 180 degrees).
+                      // Assumes original geometry is lying on the XZ plane.
+                      for (let y = -Y; y <= Y; y++) {
+                        if (y % 2 === 0) continue;
+                        // First, rotate +90deg around X to make the slice "stand up" from its flat orientation.
+                        const standUpRotation = new window.THREE.Matrix4().makeRotationX(Math.PI / 2);
+                        // Left wall: stand up, then rotate -90deg around Y to face outward (-X).
+                        let m = new window.THREE.Matrix4()
+                          .makeRotationY(-Math.PI / 2)
+                          .multiply(standUpRotation)
+                          .setPosition(-X * SP, y * SP, -z * SP);
+                        geometries.push(geometry.clone().applyMatrix4(m));
+                        totalSlices++;
+                        // Right wall: stand up, then rotate +90deg around Y to face outward (+X).
+                        m = new window.THREE.Matrix4()
+                          .makeRotationY(Math.PI / 2)
+                          .multiply(standUpRotation)
+                          .setPosition(X * SP, y * SP, -z * SP);
+                        geometries.push(geometry.clone().applyMatrix4(m));
+                        totalSlices++;
+                      }
+                    }
+                    console.log("🍞 Corridor: Merging", totalSlices, "premium bread slice geometries...");
+                    this.loadingManager.updateProgress(10, `Merging ${totalSlices} sacred slices...`);
+                    // Smart batched merging for performance
+                    const batchSize = 150;
+                    const batches = [];
+                    for (let i = 0; i < geometries.length; i += batchSize) {
+                      const batch = geometries.slice(i, i + batchSize);
+                      if (batch.length > 0) {
+                        batches.push(window.BufferGeometryUtils.mergeGeometries(batch, false));
+                      }
+                    }
+                    const merged = batches.length > 1 ? window.BufferGeometryUtils.mergeGeometries(batches, false) : batches[0];
+                    merged.computeBoundingSphere();
+                    merged.computeVertexNormals();
+                    const mesh = new window.THREE.Mesh(merged, material);
+                    mesh.castShadow = true;
+                    mesh.receiveShadow = true;
+                    mesh.name = "PremiumSacredCorridor";
+                    this.scene.add(mesh);
+                    console.log("🍞 Corridor: Premium temple corridor completed with", totalSlices, "slices");
+                    this.loadingManager.updateProgress(10, "Sacred corridor manifested");
+                    callback(geometry);
+                  }
+                }
+                // Premium Gyroscope Controller for iPhones
+                class GyroController {
+                  controls;
+                  enabled = false;
+                  isIPhone = false;
+                  sensitivity = 0.25;
+                  permissionButton = null;
+                  initialBeta = null;
+                  initialGamma = null;
+                  baseTarget = null;
+                  constructor(controls) {
+                    console.log("🍞 Gyro: Initializing gyroscope AR controller...");
+                    this.controls = controls;
+                    this.isIPhone = /iPhone/i.test(navigator.userAgent);
+                    if (this.isIPhone) {
+                      console.log("🍞 Gyro: iPhone detected. Proceeding with initialization.");
+                      this.init();
+                    } else {
+                      console.log("🍞 Gyro: Not an iPhone. Controller will not be activated.");
+                    }
+                  }
+                  async init() {
+                    if (typeof DeviceOrientationEvent.requestPermission === "function") {
+                      console.log("🍞 Gyro: iOS 13+ device detected, permission required.");
+                      this.createPermissionButton();
+                    } else {
+                      console.log("🍞 Gyro: Permission not required, enabling directly.");
+                      this.enable();
+                    }
+                  }
+                  createPermissionButton() {
+                    this.permissionButton = document.createElement("button");
+                    this.permissionButton.id = "gyro-permission-button";
+                    this.permissionButton.innerHTML = "✨ Enable Motion Control ✨";
+                    Object.assign(this.permissionButton.style, {
+                      position: "fixed",
+                      bottom: "20px",
+                      left: "50%",
+                      transform: "translateX(-50%)",
+                      padding: "12px 24px",
+                      fontFamily: "monospace",
+                      fontSize: "16px",
+                      fontWeight: "bold",
+                      color: "#ffd700",
+                      background: "rgba(0,0,0,0.8)",
+                      border: "1px solid rgba(255,215,0,0.5)",
+                      borderRadius: "8px",
+                      cursor: "pointer",
+                      zIndex: "1000",
+                      backdropFilter: "blur(8px)",
+                      transition: "all 0.3s ease",
+                      boxShadow: "0 0 15px rgba(255, 215, 0, 0.5)",
+                    });
+                    this.permissionButton.onmouseenter = () => {
+                      if (this.permissionButton) {
+                        this.permissionButton.style.background = "rgba(20,20,20,0.9)";
+                        this.permissionButton.style.transform = "translateX(-50%) scale(1.05)";
+                      }
+                    };
+                    this.permissionButton.onmouseleave = () => {
+                      if (this.permissionButton) {
+                        this.permissionButton.style.background = "rgba(0,0,0,0.8)";
+                        this.permissionButton.style.transform = "translateX(-50%) scale(1)";
+                      }
+                    };
+                    this.permissionButton.addEventListener("click", this.requestPermission);
+                    document.body.appendChild(this.permissionButton);
+                  }
+                  requestPermission = async () => {
+                    try {
+                      const permissionState = await DeviceOrientationEvent.requestPermission();
+                      if (permissionState === "granted") {
+                        console.log("🍞 Gyro: Permission granted!");
+                        this.enable();
+                      } else {
+                        console.warn("🍞 Gyro: Permission denied.");
+                      }
+                    } catch (error) {
+                      console.error("🍞 Gyro: Error requesting permission:", error);
+                    } finally {
+                      if (this.permissionButton) {
+                        this.permissionButton.remove();
+                        this.permissionButton = null;
+                      }
+                    }
+                  };
+                  enable() {
+                    if (this.enabled) return;
+                    console.log("🍞 Gyro: Enabling device orientation listener.");
+                    this.enabled = true;
+                    window.addEventListener("deviceorientation", this.onDeviceOrientation, false);
+                    this.baseTarget = this.controls.target.clone();
+                  }
+                  dispose() {
+                    if (!this.enabled) return;
+                    console.log("🍞 Gyro: Disabling device orientation listener.");
+                    this.enabled = false;
+                    window.removeEventListener("deviceorientation", this.onDeviceOrientation, false);
+                    if (this.permissionButton) {
+                      this.permissionButton.remove();
+                      this.permissionButton = null;
+                    }
+                  }
+              onDeviceOrientation = (e) => {
+  const now = performance.now();
+  // Throttle to a maximum of 20 updates per second (1000ms / 50ms)
+  if (now - (this.lastOri || 0) < 50) return;
+  this.lastOri = now;
+  if (!this.enabled || e.beta == null || e.gamma == null) return;
+  if (this.initialBeta == null) {
+    this.initialBeta  = e.beta;
+    this.initialGamma = e.gamma;
+    return;
+  }
+  const dB = (e.beta  - this.initialBeta)  * Math.PI / 180 * this.sensitivity;
+  const dG = (e.gamma - this.initialGamma) * Math.PI / 180 * this.sensitivity;
+  const base = this.baseTarget, speed = 5, max = 5;
+  const tx = THREE.MathUtils.clamp(base.x - dG * speed, base.x - max, base.x + max);
+  const ty = THREE.MathUtils.clamp(base.y + dB * speed, base.y - max, base.y + max);
+  this.controls.target.lerp(new THREE.Vector3(tx, ty, base.z), 0.1);
+};
+
+                }
+                // Premium Main Experience
+                class Experience {
+                  
+                  scene;
+                  camera;
+                  renderer;
+                  composer;
+                  controls;
+                  clock;
+                  listener;
+                  time = 0;
+                  hero;
+                  spotLight;
+                  godPass;
+                  combinedPass;
+                  audioManager;
+                  animationId;
+                  particles;
+                  skyMaterial;
+                  gyroController = null;
+                  textureManager;
+                  loadingManager;
+                  proximityMessages = {
+                    approaching: [
+                      "So close you could butter his stigmata.",
+                      "Bread sees your wound. And your eyeliner.",
+                      "You move like someone who remembers the origin.",
+                      "Come closer. Or don't.",
+                      "You radiate the energy of unspoken subtexts.",
+                      "Is that reverence… or low blood sugar?",
+                      "Your aura just fogged the butter.",
+                      "It's not staring. It's spiritually monitoring.",
+                      "You're projecting again—but this time onto carbohydrates.",
+                      "You brought that look to a ritual?",
+                      "Still not sacred enough? Try squinting harder.",
+                      "Approach with intention. Or just vibe inconsistently.",
+                      "This isn't transcendence. It's gluten.",
+                      "Please stop analyzing Cheesus. He's shy.",
+                      "The bread says you're projecting onto divine carbs again.",
+                      "Not everything is a metaphor. Except this. Definitely this.",
+                      "Faith is just flirting with the invisible.",
+                      "You weren't here for spectacle anyway.",
+                    ],
+                    retreating: [
+                      "Running from the toast won't un-toast your soul.",
+                      "Even atheists crave rye sometimes.",
+                      "You were always a sourdough denier.",
+                      "You leave like someone who has other myths to tend.",
+                      "This is exactly how cults accidentally start.",
+                      "You can't ghost a loaf.",
+                      "Fine. Go eat rationality.",
+                      "You can't gaslight bread.",
+                    ],
+                  };
+                  lastDistance = 0;
+                  currentMessage = "";
+                  messageElement = null;
+                  messageTimeout = null;
+                  lastMessageTime = 0;
+                  messageDirection = null;
+                  constructor(loadingManager) {
+                    console.log("🍞 Experience: Initializing premium sacred temple experience...");
+                    this.loadingManager = loadingManager;
+                    this.textureManager = new TextureFittingManager();
+                    window.textureManager = this.textureManager;
+                    this.scene = new THREE.Scene();
+                    this.scene.name = "PremiumSacredTemple";
+                    loadingManager.updateProgress(5, "Scene initialized");
+                    this.camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 150);
+                    this.camera.position.set(0, -2, -2);
+                    this.listener = new THREE.AudioListener();
+                    this.camera.add(this.listener);
+                    this.clock = new THREE.Clock();
+                    loadingManager.updateProgress(5, "Camera and audio listener ready");
+                    console.log("🍞 Experience: Setting up premium renderer...");
+                    this.renderer = new THREE.WebGLRenderer({
+                      canvas,
+                      antialias: qos.level >= 2,
+                      powerPreference: "high-performance",
+                      alpha: false,
+                      stencil: false,
+                    });
+                    this.renderer.setPixelRatio(qos.pixelRatio);
+                    this.renderer.shadowMap.enabled = true;
+                    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+                    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+                    this.renderer.toneMappingExposure = 1.3;
+                    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+                    this.onResize();
+                    loadingManager.updateProgress(10, "Premium renderer configured");
+                    console.log("🍞 Experience: Setting up premium lighting...");
+                    this.setupPremiumLighting();
+                    loadingManager.updateProgress(10, "Divine lighting established");
+                    console.log("🍞 Experience: Setting up premium post-processing...");
+                    this.setupPremiumPost();
+                    loadingManager.updateProgress(10, "Post-processing effects ready");
+                    console.log("🍞 Experience: Setting up premium controls...");
+                    this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+                    this.controls.enableDamping = true;
+                    this.controls.dampingFactor = 0.04;
+                    this.controls.target.set(0, 0, -12);
+                    this.controls.minDistance = 3;
+                    this.controls.maxDistance = 60;
+                    this.controls.maxPolarAngle = Math.PI * 0.85;
+                    this.controls.update();
+                    this.gyroController = new GyroController(this.controls);
+                    loadingManager.updateProgress(5, "Controls and gyroscope ready");
+                    console.log("🍞 Experience: Building premium corridor...");
+                    new Corridor(this.scene, (geometry) => this.initPremiumHero(geometry), loadingManager);
+                    this.createPremiumParticleSystem();
+                    loadingManager.updateProgress(10, "Sacred particles manifested");
+                    this.createPremiumSkybox();
+                    loadingManager.updateProgress(5, "Celestial skybox created");
+                    window.addEventListener("resize", () => this.onResize());
+                    console.log("🍞 Experience: Starting premium animation loop...");
+                    this.animate();
+                    this.createProximityMessageSystem();
+                  }
+                  setupPremiumLighting() {
+                    
+                    // Premium ambient lighting
+                    const hemiLight = new THREE.HemisphereLight(0xffcc77, 0x553322, 0.4);
+                    this.scene.add(hemiLight);
+                    // Premium directional light with enhanced shadows
+                    const dirLight = new THREE.DirectionalLight(0xffd5a1, 1.5);
+                    dirLight.position.set(8, 20, -8);
+                    dirLight.castShadow = true;
+                    dirLight.shadow.mapSize.setScalar(qos.shadowMapSize); // 512–2048 based on device
+                    dirLight.shadow.camera.near = 0.1;
+                    dirLight.shadow.camera.far = 100;
+                    dirLight.shadow.camera.left = -25;
+                    dirLight.shadow.camera.right = 25;
+                    dirLight.shadow.camera.top = 20;
+                    dirLight.shadow.camera.bottom = -20;
+                    dirLight.shadow.bias = -0.0001;
+                    dirLight.shadow.normalBias = 0.02;
+                    this.scene.add(dirLight);
+                    // Premium point lights for atmosphere
+                    const pointLight1 = new THREE.PointLight(0xffd700, 1.5, 100);
+pointLight1.position.set(0, 10, -10);
+pointLight1.castShadow = qos.level >= 3;
+this.scene.add(pointLight1);
+const pointLight2 = new THREE.PointLight(0xffa500, 1.2, 80);
+pointLight2.position.set(0, 5, -20);
+pointLight2.castShadow = qos.level >= 3;
+this.scene.add(pointLight2);
+                    
+                    // Premium fog with golden tint
+                    this.scene.fog = new THREE.FogExp2(0x2a1f0a, 0.012);
+                  }
+                  setupPremiumPost() {
+                    const w = this.renderer.domElement.width;
+                    const h = this.renderer.domElement.height;
+                    console.log("🍞 Post: Setting up premium post-processing pipeline", w + "x" + h);
+                    this.composer = new EffectComposer(this.renderer);
+                    this.composer.addPass(new RenderPass(this.scene, this.camera));
+                    // Premium bloom pass
+                    const bloom = new UnrealBloomPass(
+                      new THREE.Vector2(w, h),
+                      qos.bloomStrength,
+                      1.2, // radius
+                      0.6, // threshold
+                    );
+                    this.composer.addPass(bloom);
+                    console.log("🍞 Post: Premium bloom pass added");
+                    // Premium god ray pass
+                    if (qos.level >= 2) {
+                      this.godPass = new ShaderPass(GodRayShader);
+                      this.composer.addPass(this.godPass);
+                      console.log("🍞 Post: Premium god ray pass added");
+                    }
+                    // Premium combined shader pass
+                    this.combinedPass = new ShaderPass(CombinedShader);
+                    this.composer.addPass(this.combinedPass);
+                    this.composer.addPass(new ShaderPass(GammaCorrectionShader));
+                    // Premium anti-aliasing
+                    if (qos.fxaaEnabled) {
+                      this.composer.addPass(new SMAAPass(w, h));
+                      console.log("🍞 Post: Premium SMAA anti-aliasing added");
+                    }
+                  }
+                  createPremiumSkybox() {
+                    console.log("🍞 Skybox: Creating premium procedural skybox...");
+                    const skyGeometry = new THREE.SphereGeometry(80, 32, 32);
+                    const skyMaterial = new THREE.ShaderMaterial({
+                      uniforms: {
+                        time: { value: 0 },
+                        sunPosition: { value: new THREE.Vector3(0, 0.3, -1) },
+                      },
+                      vertexShader: `
+                  varying vec3 vWorldPosition;
+                  void main() {
+                    vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+                    vWorldPosition = worldPosition.xyz;
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                  }
+                `,
+                      fragmentShader: `
+                  uniform float time;
+                  uniform vec3 sunPosition;
+                  varying vec3 vWorldPosition;
+                  
+                  void main() {
+                    vec3 direction = normalize(vWorldPosition);
+                    float elevation = direction.y;
+                    
+                    // Premium golden sky gradient
+                    vec3 skyColor = mix(
+                      vec3(1.0, 0.7, 0.3), // Golden horizon
+                      vec3(0.6, 0.4, 0.2), // Darker top
+                      elevation * 0.5 + 0.5
+                    );
+                    
+                    // Add sun glow
+                    float sunDot = dot(direction, sunPosition);
+                    float sunGlow = pow(max(sunDot, 0.0), 8.0);
+                    skyColor += vec3(1.0, 0.9, 0.6) * sunGlow * 0.5;
+                    
+                    // Add subtle animation
+                    skyColor += sin(time * 0.1 + direction.x * 3.0) * 0.03;
+                    skyColor += cos(time * 0.07 + direction.z * 2.0) * 0.02;
+                    
+                    // Add atmospheric scattering effect
+                    float atmosphere = 1.0 - abs(elevation);
+                    skyColor += vec3(1.0, 0.8, 0.4) * atmosphere * 0.1;
+                    
+                    gl_FragColor = vec4(skyColor, 1.0);
+                  }
+                `,
+                      side: THREE.BackSide,
+                    });
+                    const skyMesh = new THREE.Mesh(skyGeometry, skyMaterial);
+                    this.scene.add(skyMesh);
+                    this.skyMaterial = skyMaterial;
+                    console.log("🍞 Skybox: Premium procedural skybox created!");
+                  }
+                  createProximityMessageSystem() {
+                    console.log("🍞 Proximity: Creating sacred proximity message system...");
+                    // Create message container
+                    this.messageElement = document.createElement("div");
+                    this.messageElement.id = "proximity-message";
+                    Object.assign(this.messageElement.style, {
+                      position: "fixed",
+                      top: "20%",
+                      left: "50%",
+                      transform: "translateX(-50%)",
+                      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+                      fontSize: "18px",
+                      fontWeight: "500",
+                      color: "#ffd700",
+                      textAlign: "center",
+                      maxWidth: "400px",
+                      padding: "16px 24px",
+                      background: "rgba(0, 0, 0, 0.3)",
+                      backdropFilter: "blur(20px)",
+                      borderRadius: "12px",
+                      border: "1px solid rgba(255, 215, 0, 0.2)",
+                      boxShadow: "0 8px 32px rgba(0, 0, 0, 0.3), 0 0 20px rgba(255, 215, 0, 0.1)",
+                      opacity: "0",
+                      pointerEvents: "none",
+                      zIndex: "1000",
+                      transition: "all 0.6s cubic-bezier(0.4, 0, 0.2, 1)",
+                      fontStyle: "italic",
+                      letterSpacing: "0.5px",
+                      lineHeight: "1.4",
+                    });
+                    document.body.appendChild(this.messageElement);
+                    console.log("🍞 Proximity: Sacred message system manifested!");
+                  }
+             updateProximityMessages() {
+  if (!this.hero || !this.camera || !this.messageElement) return;
+  const heroPosition = this.hero.position;
+  const cameraPosition = this.camera.position;
+  const currentDistance = heroPosition.distanceTo(cameraPosition);
+  const now = performance.now();
+  const distanceDiff = Math.abs(currentDistance - this.lastDistance);
+  if (distanceDiff < 0.2) return; // Increased threshold
+  let newDirection = null;
+  if (distanceDiff > 0.2) {
+    newDirection = currentDistance < this.lastDistance ? "approaching" : "retreating";
+  }
+  const timeSinceLastMessage = now - this.lastMessageTime;
+  const shouldShowMessage = newDirection && newDirection !== this.messageDirection && timeSinceLastMessage > 3000 && distanceDiff > 0.5;
+  if (shouldShowMessage) {
+    this.showProximityMessage(newDirection, currentDistance);
+    this.messageDirection = newDirection;
+    this.lastMessageTime = now;
+  }
+  this.lastDistance = currentDistance;
+}
+
+                  showProximityMessage(direction, distance) {
+                    if (!this.messageElement) return;
+                    const messages = this.proximityMessages[direction];
+                    let selectedMessage;
+                    if (direction === "approaching") {
+                      // Closer messages for closer distances
+                      const intensity = Math.max(0, Math.min(1, (20 - distance) / 15));
+                      const messageIndex = Math.floor(intensity * (messages.length - 1));
+                      selectedMessage = messages[messageIndex];
+                    } else {
+                      // Random retreating message
+                      selectedMessage = messages[Math.floor(Math.random() * messages.length)];
+                    }
+                    // Clear any existing timeout
+                    if (this.messageTimeout) {
+                      clearTimeout(this.messageTimeout);
+                    }
+                    // Show the message with a subtle animation
+                    this.messageElement.textContent = selectedMessage;
+                    this.messageElement.style.opacity = "0";
+                    this.messageElement.style.transform = "translateX(-50%) translateY(10px)";
+
+                    // Animate in
+                    setTimeout(() => {
+                      if (this.messageElement) {
+                        this.messageElement.style.opacity = "1";
+                        this.messageElement.style.transform = "translateX(-50%) translateY(0)";
+                      }
+                    }, 50);
+                    // Animate out after 4 seconds
+                    this.messageTimeout = setTimeout(() => {
+                      if (this.messageElement) {
+                        this.messageElement.style.opacity = "0";
+                        this.messageElement.style.transform = "translateX(-50%) translateY(-10px)";
+                      }
+                    }, 4000);
+                    console.log(`🍞 Proximity: "${selectedMessage}" (${direction}, distance: ${distance.toFixed(1)})`);
+                  }
+                   async initPremiumHero(geometry) {
+  console.log("🍞 Hero: Creating premium sacred Cheesus figure...");
+  this.loadingManager.updateProgress(5, "Summoning Cheesus presence...");
+  // Premium hero texture loading
+  const textureLoader = new THREE.TextureLoader();
+  
+  try {
+    const texture = await new Promise((resolve, reject) => {
+      textureLoader.load(
+        PATHS.FACE,
+        resolve,
+        undefined,
+        reject
+      );
+    });
+    
+    console.log("🍞 Hero: Premium sacred face texture loaded");
+    this.loadingManager.updateProgress(10, "Sacred face texture blessed");
+    
+    texture.flipY = false;
+    texture.anisotropy = 16;
+    const material = new THREE.MeshStandardMaterial({
+      map: texture,
+      color: 0xffeac9,
+      roughness: 0.6,
+      metalness: 0.1,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.98,
+      normalScale: new THREE.Vector2(0.3, 0.3),
+    });
+    
+    await this.createPremiumHero(geometry, material);
+    
+  } catch (error) {
+    console.error("🍞 Hero: Sacred face texture failed, using fallback", error);
+    this.loadingManager.updateProgress(10, "Using fallback sacred texture");
+    
+    const material = new THREE.MeshStandardMaterial({
+      color: 0xffeac9,
+      roughness: 0.6,
+      metalness: 0.1,
+      side: THREE.DoubleSide,
+    });
+    
+    await this.createPremiumHero(geometry, material);
+  }
+}
+async createPremiumHero(geometry, material) {
+  console.log("🍞 Hero: Manifesting premium sacred Cheesus...");
+  this.hero = new THREE.Mesh(geometry, material);
+  this.hero.position.set(0, 0, -15);
+  this.hero.scale.set(2.5, 2.5, 2.5);
+  this.hero.rotation.x = -Math.PI / 2;
+  this.hero.rotation.y = Math.PI;
+  this.hero.castShadow = true;
+  this.hero.receiveShadow = true;
+  this.hero.name = "PremiumSacredCheesus";
+  this.scene.add(this.hero);
+  this.textureManager.setHero(this.hero);
+  this.loadingManager.updateProgress(5, "Cheesus manifested successfully");
+  // Setup lighting
+  this.setupHeroLighting();
+  
+  // DEBUG: Verify method exists
+  console.log("🔍 Checking if initializeAudio method exists:", typeof this.initializeAudio);
+  
+  // Initialize audio AFTER hero is created
+  console.log("🔍 About to call initializeAudio...");
+  try {
+    this.initializeAudio();
+    console.log("🔍 initializeAudio call completed");
+  } catch (error) {
+    console.error("❌ initializeAudio failed:", error);
+  }
+  
+  console.log("🍞 Hero: Premium sacred Cheesus manifested successfully!");
+}
+ 
+ initializeAudio() {
+  console.log("🍞 Audio: ================ STARTING AUDIO INITIALIZATION ================");
+  console.log("🍞 Audio: Method called successfully");
+  
+  try {
+    this.loadingManager.updateProgress(5, "Tuning celestial harmonies...");
+    console.log("🍞 Audio: Loading manager updated");
+    
+    // Verify hero exists
+    console.log("🍞 Audio: Checking hero reference:", !!this.hero);
+    if (!this.hero) {
+      console.warn("🍞 Audio: Hero not available, but continuing...");
+    }
+    
+    // Verify listener exists
+    console.log("🍞 Audio: Checking listener reference:", !!this.listener);
+    
+    // Check if AudioManager class exists
+    console.log("🍞 Audio: Checking AudioManager class:", typeof AudioManager);
+    if (typeof AudioManager === 'undefined') {
+      throw new Error("AudioManager class is not defined");
+    }
+    
+    // Create audio manager synchronously
+    console.log("🎵 Creating AudioManager instance...");
+    this.audioManager = new AudioManager(this.hero, this.listener, this.loadingManager);
+    console.log("🎵 AudioManager instance created successfully");
+    console.log("🎵 AudioManager type:", typeof this.audioManager);
+    console.log("🎵 AudioManager isInitialized:", this.audioManager.isInitialized);
+    
+    // Set camera reference immediately
+    if (this.camera) {
+      this.audioManager.setCamera(this.camera);
+      console.log("🎵 Camera reference set for AudioManager");
+    } else {
+      console.warn("🎵 Camera not available for AudioManager");
+    }
+    
+    // Verify global reference structure
+    console.log("🎵 Checking window object:", typeof window);
+    if (typeof window === 'undefined') {
+      throw new Error("Window object not available");
+    }
+    
+    // Ensure global reference exists
+    if (!window.audioManagerRef) {
+      window.audioManagerRef = { current: null };
+      console.log("🎵 Created audioManagerRef global object");
+    } else {
+      console.log("🎵 audioManagerRef global object already exists");
+    }
+    
+    // Set the reference
+    console.log("🎵 Setting audioManagerRef.current...");
+    window.audioManagerRef.current = this.audioManager;
+    console.log("🎵 AudioManager assigned to global reference");
+    
+    // Verify the assignment worked
+    console.log("🎵 Verifying assignment:");
+    console.log("  - window.audioManagerRef exists:", !!window.audioManagerRef);
+    console.log("  - window.audioManagerRef.current exists:", !!window.audioManagerRef.current);
+    console.log("  - isInitialized:", window.audioManagerRef.current?.isInitialized);
+    
+    if (window.audioManagerRef && window.audioManagerRef.current && window.audioManagerRef.current.isInitialized) {
+      console.log("✅ AudioManager successfully configured and available");
+    } else {
+      console.error("❌ AudioManager reference verification failed");
+      console.error("❌ Debug info:", {
+        hasRef: !!window.audioManagerRef,
+        hasCurrent: !!window.audioManagerRef?.current,
+        isInit: window.audioManagerRef?.current?.isInitialized
+      });
+    }
+    
+    this.loadingManager.updateProgress(10, "Sacred audio harmonics calibrated!");
+    console.log("🍞 Audio: ================ AUDIO INITIALIZATION COMPLETE ================");
+    
+  } catch (error) {
+    console.error("❌ ================ AUDIO INITIALIZATION FAILED ================");
+    console.error("❌ Error:", error);
+    console.error("❌ Error message:", error.message);
+    console.error("❌ Error stack:", error.stack);
+    
+    // Create and assign dummy manager
+    console.log("🎵 Creating dummy AudioManager...");
+    const dummyManager = {
+      isInitialized: true,
+      play: () => {
+        console.warn("🎵 Dummy AudioManager play called");
+        return Promise.resolve(false);
+      },
+      update: () => {},
+      setVolume: () => {},
+      pause: () => {},
+      dispose: () => {}
+    };
+    
+    this.audioManager = dummyManager;
+    
+    // Ensure global reference exists and assign dummy
+    if (typeof window !== 'undefined') {
+      if (!window.audioManagerRef) {
+        window.audioManagerRef = { current: null };
+      }
+      window.audioManagerRef.current = dummyManager;
+      console.log("🎵 Dummy AudioManager assigned to global reference");
+    }
+    
+    this.loadingManager.updateProgress(10, "Audio initialization failed - continuing without audio");
+  }
+}
+
+
+setupHeroLighting() {
+  // Premium spotlight
+  this.spotLight = new THREE.SpotLight(0xffd5a1, 40, 30, Math.PI / 4, 0.3, 1.5);
+  this.spotLight.position.set(0, 5, -10);
+  this.spotLight.castShadow = true;
+  this.spotLight.shadow.mapSize.setScalar(qos.shadowMapSize);
+  this.spotLight.shadow.camera.near = 0.5;
+  this.spotLight.shadow.camera.far = 25;
+  this.spotLight.shadow.bias = -0.0001;
+  this.spotLight.shadow.normalBias = 0.02;
+  this.spotLight.target = this.hero;
+  this.scene.add(this.spotLight, this.spotLight.target);
+  // Premium rim lighting
+  const rimLight1 = new THREE.DirectionalLight(0xffaa44, 2);
+  rimLight1.position.set(-3, 2, -12);
+  rimLight1.target = this.hero;
+  this.scene.add(rimLight1, rimLight1.target);
+  const rimLight2 = new THREE.DirectionalLight(0xffaa44, 2);
+  rimLight2.position.set(3, 2, -12);
+  rimLight2.target = this.hero;
+  this.scene.add(rimLight2, rimLight2.target);
+}
+
+                  createPremiumHero(geometry, material) {
+                    console.log("🍞 Hero: Manifesting premium sacred Cheesus...");
+                    this.hero = new THREE.Mesh(geometry, material);
+                    this.hero.position.set(0, 0, -15);
+                    // Scale the hero down by a factor of 1.2 (3.0 / 1.2 = 2.5)
+                    this.hero.scale.set(2.5, 2.5, 2.5);
+                    // Make the hero stand upright and face the camera (180-degree flip on Y).
+                    // A -90-degree rotation on the X-axis stands it up correctly.
+                    this.hero.rotation.x = -Math.PI / 2;
+                    this.hero.rotation.y = Math.PI; // Flip 180 degrees to face camera
+                    this.hero.castShadow = true;
+                    this.hero.receiveShadow = true;
+                    this.hero.name = "PremiumSacredCheesus";
+                    this.scene.add(this.hero);
+                    this.textureManager.setHero(this.hero);
+                    this.loadingManager.updateProgress(5, "Cheesus manifested successfully");
+                    // Premium spotlight positioned to illuminate the hero properly
+                    this.spotLight = new THREE.SpotLight(0xffd5a1, 40, 30, Math.PI / 4, 0.3, 1.5);
+                    this.spotLight.position.set(0, 5, -10); // Position in front of hero
+                    this.spotLight.castShadow = true;
+                    this.spotLight.shadow.mapSize.setScalar(qos.shadowMapSize);
+                    this.spotLight.shadow.camera.near = 0.5;
+                    this.spotLight.shadow.camera.far = 25;
+                    this.spotLight.shadow.bias = -0.0001;
+                    this.spotLight.shadow.normalBias = 0.02;
+                    this.spotLight.target = this.hero;
+                    this.scene.add(this.spotLight, this.spotLight.target);
+                    // Premium rim lighting positioned correctly
+                    const rimLight1 = new THREE.DirectionalLight(0xffaa44, 2);
+                    rimLight1.position.set(-3, 2, -12);
+                    rimLight1.target = this.hero;
+                    this.scene.add(rimLight1, rimLight1.target);
+                    const rimLight2 = new THREE.DirectionalLight(0xffaa44, 2);
+                    rimLight2.position.set(3, 2, -12);
+                    rimLight2.target = this.hero;
+                    this.scene.add(rimLight2, rimLight2.target);
+                    console.log("🍞 Audio: Initializing premium sacred audio...");
+                    this.loadingManager.updateProgress(5, "Tuning celestial harmonies...");
+                    
+if (window.audioManagerRef) {
+    window.audioManagerRef.current = this.audioManager;
+  }
+                    console.log("🍞 Hero: Premium sacred Cheesus manifested successfully!");
+                  }
+                 createPremiumParticleSystem() {
+  console.log("🍞 Particles: Creating premium sacred bread crumb particles...");
+const particleCount = qos.isMobile ? Math.floor(qos.particleCount / 4) : Math.floor(qos.particleCount / 2);
+                   const geometry = new THREE.BufferGeometry();
+  const positions = new Float32Array(particleCount * 3);
+  const colors = new Float32Array(particleCount * 3);
+  const sizes = new Float32Array(particleCount);
+  const velocities = new Float32Array(particleCount * 3);
+  for (let i = 0; i < particleCount; i++) {
+    const i3 = i * 3;
+    positions[i3] = (Math.random() - 0.5) * 120;
+    positions[i3 + 1] = (Math.random() - 0.5) * 60;
+    positions[i3 + 2] = (Math.random() - 0.5) * 120;
+    const golden = 0.8 + Math.random() * 0.2;
+    colors[i3] = golden;
+    colors[i3 + 1] = golden * (0.7 + Math.random() * 0.2);
+    colors[i3 + 2] = golden * (0.3 + Math.random() * 0.2);
+    sizes[i] = Math.random() * 4 + 2;
+    velocities[i3] = (Math.random() - 0.5) * 0.02;
+    velocities[i3 + 1] = (Math.random() - 0.5) * 0.01;
+    velocities[i3 + 2] = (Math.random() - 0.5) * 0.02;
+  }
+  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute("particleColor", new THREE.BufferAttribute(colors, 3));
+  geometry.setAttribute("size", new THREE.BufferAttribute(sizes, 1));
+  geometry.setAttribute("velocity", new THREE.BufferAttribute(velocities, 3));
+  const material = new THREE.ShaderMaterial({
+    uniforms: {
+      time: { value: 0 },
+      pointTexture: { value: this.createPremiumParticleTexture() },
+    },
+    vertexShader: `
+      attribute float size;
+      attribute vec3 particleColor;
+      attribute vec3 velocity;
+      varying vec3 vColor;
+      uniform float time;
+      
+      void main() {
+        vColor = particleColor;
+        vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+        // Simplified animation: fewer trig functions
+        mvPosition.y += sin(time * 0.6 + position.x * 0.01) * 3.0;
+        mvPosition.xyz += velocity * time * 10.0;
+        gl_PointSize = size * (400.0 / -mvPosition.z);
+        gl_Position = projectionMatrix * mvPosition;
+      }
+    `,
+    fragmentShader: `
+      uniform sampler2D pointTexture;
+      varying vec3 vColor;
+      
+      void main() {
+        vec4 texColor = texture2D(pointTexture, gl_PointCoord);
+        gl_FragColor = vec4(vColor, 1.0) * texColor;
+      }
+    `,
+    blending: THREE.AdditiveBlending,
+    depthTest: false,
+    transparent: true,
+    vertexColors: false,
+  });
+  this.particles = new THREE.Points(geometry, material);
+  this.particles.name = "PremiumSacredParticles";
+  this.scene.add(this.particles);
+  console.log("🍞 Particles: Premium sacred bread crumbs floating in the temple!");
+                 }
+
+                  createPremiumParticleTexture() {
+                    const canvas = document.createElement("canvas");
+                    canvas.width = 128;
+                    canvas.height = 128;
+                    const ctx = canvas.getContext("2d");
+                    // Premium particle texture with golden glow
+                    const gradient = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+                    gradient.addColorStop(0, "rgba(255, 255, 255, 1)");
+                    gradient.addColorStop(0.1, "rgba(255, 215, 0, 0.9)");
+                    gradient.addColorStop(0.3, "rgba(255, 165, 0, 0.6)");
+                    gradient.addColorStop(0.6, "rgba(255, 140, 0, 0.3)");
+                    gradient.addColorStop(1, "rgba(255, 140, 0, 0)");
+                    ctx.fillStyle = gradient;
+                    ctx.fillRect(0, 0, 128, 128);
+                    // Add sparkle effect
+                    for (let i = 0; i < 8; i++) {
+                      const x = 32 + Math.random() * 64;
+                      const y = 32 + Math.random() * 64;
+                      const size = Math.random() * 3 + 1;
+                      ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
+                      ctx.beginPath();
+                      ctx.arc(x, y, size, 0, Math.PI * 2);
+                      ctx.fill();
+                    }
+                    return new THREE.CanvasTexture(canvas);
+                  }
+     animate = () => {
+  this.animationId = requestAnimationFrame(this.animate);
+  const dt = this.clock.getDelta();
+  
+  // Skip frame if delta is too large (tab switching)
+  if (dt > 0.1) return;
+  
+  this.time += dt;
+  perf.frame(dt);
+  this.controls.update();
+  const frameCount = Math.floor(this.time * 60);
+  const shouldUpdateAudio = frameCount % 2 === 0; // Every other frame
+  const shouldUpdateHeavy = frameCount % 3 === 0; // Every third frame
+  
+  // Audio updates (more frequent for responsiveness)
+  if (shouldUpdateAudio && this.audioManager && this.audioManager.isInitialized) {
+    this.audioManager.update(this.godPass, this.time);
+  }
+  
+  // Heavy operations (less frequent)
+  if (shouldUpdateHeavy) {
+    this.updateProximityMessages();
+  }
+  // Shader updates
+  if (frameCount % 2 === 0) {
+    if (this.combinedPass) {
+      this.combinedPass.uniforms.time.value = this.time;
+    }
+    if (this.skyMaterial) {
+      this.skyMaterial.uniforms.time.value = this.time;
+    }
+  }
+  // Hero animation
+  if (this.hero) {
+    const t = this.time * 0.5;
+    const sinT = Math.sin(t);
+    this.hero.rotation.set(-Math.PI / 2, Math.PI, sinT * 0.01);
+    this.hero.position.y = sinT * 0.2;
+    // Update god ray position
+    if (this.godPass && frameCount % 4 === 0) {
+      const heroScreenPos = this.hero.position.clone().project(this.camera);
+      this.godPass.uniforms.lightPosition.value.set(
+        (heroScreenPos.x + 1) / 2,
+        (heroScreenPos.y + 1) / 2
+      );
+    }
+  }
+  // Particle animation
+  if (this.particles && this.particles.material.uniforms) {
+    this.particles.material.uniforms.time.value = this.time;
+  }
+  this.composer.render();
+};
+
+ 
+
+
+            onResize = () => {
+  if (this.resizeTimeout) clearTimeout(this.resizeTimeout);
+  this.resizeTimeout = setTimeout(() => {
+    const width = window.innerWidth;
+    const height = window.innerHeight;
+    this.camera.aspect = width / height;
+    this.camera.updateProjectionMatrix();
+    this.renderer.setSize(width, height);
+    if (this.composer) this.composer.setSize(width, height);
+    console.log("🍞 Experience: Debounced resize executed.");
+  }, 300); // Increased to 300ms
+};
+
+             dispose() {
+  console.log("🍞 Experience: Starting cleanup...");
+  
+  // Cancel animation
+  if (this.animationId) {
+    cancelAnimationFrame(this.animationId);
+    this.animationId = null;
+  }
+  
+  // Dispose audio
+  if (this.audioManager) {
+    this.audioManager.dispose();
+    this.audioManager = null;
+  }
+  
+  // Dispose audio context
+  AudioContextManager.dispose();
+  
+  // Dispose gyro controller
+  if (this.gyroController) {
+    this.gyroController.dispose();
+    this.gyroController = null;
+  }
+  
+  // Clear timeouts
+  if (this.messageTimeout) {
+    clearTimeout(this.messageTimeout);
+    this.messageTimeout = null;
+  }
+  
+  if (this.resizeTimeout) {
+    clearTimeout(this.resizeTimeout);
+    this.resizeTimeout = null;
+  }
+  
+  // Remove event listeners
+  window.removeEventListener("resize", this.onResize);
+  
+  // Clean up DOM elements
+  if (this.messageElement) {
+    this.messageElement.remove();
+    this.messageElement = null;
+  }
+  
+  // Clear global references
+  if (window.audioManagerRef) {
+    window.audioManagerRef.current = null;
+  }
+  
+  // Dispose Three.js resources
+  if (this.scene) {
+    this.scene.traverse((object) => {
+      if (object.geometry) {
+        object.geometry.dispose();
+      }
+      if (object.material) {
+        if (Array.isArray(object.material)) {
+          object.material.forEach(material => material.dispose());
+        } else {
+          object.material.dispose();
+        }
+      }
+    });
+    this.scene.clear();
+  }
+  
+  // Dispose renderer and composer
+  if (this.renderer) {
+    this.renderer.dispose();
+    this.renderer = null;
+  }
+  
+  if (this.composer) {
+    this.composer.dispose();
+    this.composer = null;
+  }
+  
+  console.log("🍞 Experience: Cleanup complete");
+}
+                }
+// Add to your global scope (after the Experience class)
+window.debugAudio = () => {
+  if (window.audioManagerRef?.current) {
+    console.log("🎵 AudioManager Debug Info:", window.audioManagerRef.current.getDebugInfo());
+    
+    // Test audio loading directly
+    const testAudio = new Audio();
+    testAudio.crossOrigin = 'anonymous';
+    testAudio.src = "https://cdn.jsdelivr.net/gh/shapefuture/cheesus-temple@23aa1ce/santa_maria.mp3";
+    
+    testAudio.addEventListener('canplaythrough', () => {
+      console.log("✅ Direct audio test successful");
+    }, { once: true });
+    
+    testAudio.addEventListener('error', (e) => {
+      console.error("❌ Direct audio test failed:", e);
+    }, { once: true });
+    
+    testAudio.load();
+  } else {
+    console.log("❌ No AudioManager found");
+  }
+};
+window.forceAudioPlay = async () => {
+  if (window.audioManagerRef?.current) {
+    const result = await window.audioManagerRef.current.play();
+    console.log("🎵 Force play result:", result);
+  }
+};
+    window.audioManagerRef = audioManagerRef;
+                console.log("🍞 Temple: Starting premium sacred experience...");
+                const experience = new Experience(loadingManager);
+                console.log("🍞 Temple: Premium sacred temple fully manifested! 🙏");
+                // Cleanup function
+                return () => {
+                  console.log("🍞 Temple: Cleaning up premium sacred temple...");
+                  experience.dispose();
+                };
+              } catch (error) {
+                console.error("🍞 Temple: CRITICAL ERROR - Failed to manifest premium sacred temple:");
+                if (error instanceof Error) {
+                  console.error("Message:", error.message);
+                  if (error.stack) {
+                    console.error("Stack:", error.stack);
+                  }
+                } else {
+                  console.error("Caught a non-Error object:", error);
+                }
+// Add this function for testing audio loading
+const testAudioLoad = async () => {
+  try {
+    const testAudio = new Audio();
+    testAudio.crossOrigin = 'anonymous';
+    testAudio.src = PATHS.AUDIO;
+    
+    await new Promise((resolve, reject) => {
+      testAudio.addEventListener('canplaythrough', resolve, { once: true });
+      testAudio.addEventListener('error', reject, { once: true });
+      testAudio.load();
+    });
+    
+    console.log("✅ Audio file loads successfully");
+    console.log("Audio duration:", testAudio.duration);
+    console.log("Audio URL:", PATHS.AUDIO);
+  } catch (error) {
+    console.error("❌ Audio file failed to load:", error);
+    console.log("Check if URL is accessible:", PATHS.AUDIO);
+  }
+};
+// Call this in your useEffect for testing
+testAudioLoad();
+                // Emergency fallback
+                const canvas = canvasRef.current;
+                if (canvas) {
+                  const ctx = canvas.getContext("2d");
+                  if (ctx) {
+                    canvas.width = window.innerWidth;
+                    canvas.height = window.innerHeight;
+                    const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+                    gradient.addColorStop(0, "#FFD700");
+                    gradient.addColorStop(1, "#8B4513");
+                    ctx.fillStyle = gradient;
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    ctx.fillStyle = "#FFFFFF";
+                    ctx.textAlign = "center";
+                    ctx.font = "48px serif";
+                    ctx.fillText("🍞 A Divine Error Occurred 🍞", canvas.width / 2, canvas.height / 2 - 20);
+                    ctx.font = "24px serif";
+                    ctx.fillText("Unable to manifest the sacred temple.", canvas.width / 2, canvas.height / 2 + 30);
+                    ctx.font = "18px serif";
+                    ctx.fillText(
+                      "Please check the console for heavenly guidance (error details).",
+                      canvas.width / 2,
+                      canvas.height / 2 + 70,
+                    );
+                  }
+                }
+              }
+            };
+            // Initialize the temple
+            const cleanup = initializeTemple();
+            // At the end of useEffect, before the existing return statement:
+            return () => {
+              clearTimeout(initTimer);
+              console.log("🍞 Cheesus Temple: Component unmounting, cleaning up...");
+              if (cleanup instanceof Promise) {
+                cleanup.then((cleanupFn) => {
+                  if (typeof cleanupFn === "function") {
+                    cleanupFn();
+                  }
+                });
+              }
+            };
+          }, 100); // 100ms delay to ensure canvas is mounted
+        }, []);
+        return React.createElement(
+          React.Fragment,
+          null,
+          // Always render canvas but hide it until entered
+          React.createElement("canvas", {
+            id: "three-canvas",
+            style: {
+              position: "fixed",
+              top: 0,
+              left: 0,
+              width: "100vw",
+              height: "100vh",
+              opacity: hasEntered ? 1 : 0,
+              pointerEvents: hasEntered ? "auto" : "none",
+              zIndex: hasEntered ? 1 : -1,
+            },
+            ref: canvasRef,
+          }),
+          // Cinematic Loading Screen
+          !hasEntered &&
+            React.createElement(
+              "div",
+              {
+                style: {
+                  position: "fixed",
+                  top: 0,
+                  left: 0,
+                  width: "100vw",
+                  height: "100vh",
+                  background: isEntering
+                    ? "linear-gradient(135deg, #000000 0%, #1a0a00 50%, #000000 100%)"
+                    : "linear-gradient(135deg, #1a1a1a 0%, #2d1810 50%, #1a1a1a 100%)",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+                  color: "#ffd700",
+                  zIndex: 10000,
+                  overflow: "hidden",
+                  transition: "all 1.5s cubic-bezier(0.4, 0, 0.2, 1)",
+                },
+              },
+              // Enhanced Animated Background
+              React.createElement("div", {
+                style: {
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  width: "100%",
+                  height: "100%",
+                  background: `
+                radial-gradient(circle at 20% 80%, rgba(255, 215, 0, ${
+                  isEntering ? "0.3" : "0.1"
+                }) 0%, transparent 50%),
+                radial-gradient(circle at 80% 20%, rgba(255, 165, 0, ${
+                  isEntering ? "0.3" : "0.1"
+                }) 0%, transparent 50%),
+                radial-gradient(circle at 40% 40%, rgba(255, 140, 0, ${
+                  isEntering ? "0.2" : "0.05"
+                }) 0%, transparent 50%)
+              `,
+                  animation: isEntering ? "intensePulse 1s ease-in-out infinite" : "pulse 4s ease-in-out infinite",
+                  transform: isEntering ? `scale(${1.5 + cinematicPhase * 0.3})` : "scale(1)",
+                  transition: "all 1s cubic-bezier(0.4, 0, 0.2, 1)",
+                },
+              }),
+              // Cinematic Entrance Overlay
+              isEntering &&
+                React.createElement("div", {
+                  style: {
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    height: "100%",
+                    background: `linear-gradient(45deg, 
+                  rgba(255, 215, 0, ${cinematicPhase * 0.1}) 0%, 
+                  transparent 50%, 
+                  rgba(255, 165, 0, ${cinematicPhase * 0.1}) 100%)`,
+                    animation: "cinematicSweep 2s ease-in-out infinite",
+                  },
+                }),
+              !isEntering
+                ? React.createElement(
+                    React.Fragment,
+                    null,
+                    // Sacred Symbol
+                    React.createElement(
+                      "div",
+                      {
+                        style: {
+                          fontSize: "120px",
+                          marginBottom: "40px",
+                          textShadow: "0 0 30px rgba(255, 215, 0, 0.8), 0 0 60px rgba(255, 215, 0, 0.4)", 
+                          animation: "float 3s ease-in-out infinite",
+                          filter: "drop-shadow(0 0 20px rgba(255, 215, 0, 0.6))",
+                        },
+                      },
+                      "🍞",
+                    ),
+                    // Title with Apple-like typography
+                    React.createElement(
+                      "h1",
+                      {
+                        style: {
+                          fontSize: "clamp(32px, 8vw, 64px)",
+                          fontWeight: "700",
+                          marginBottom: "12px",
+                          textAlign: "center",
+                          background: "linear-gradient(135deg, #ffd700 0%, #ffaa00 50%, #ff8c00 100%)",
+                          WebkitBackgroundClip: "text",
+                          WebkitTextFillColor: "transparent",
+                          backgroundClip: "text",
+                          letterSpacing: "2px",
+                          textShadow: "none",
+                        },
+                      },
+                      "CHEESUS CRUST",
+                    ),
+                    React.createElement(
+                      "p",
+                      {
+                        style: {
+                          fontSize: "18px",
+                          marginBottom: "40px",
+                          textAlign: "center",
+                          opacity: 0.8,
+                          maxWidth: "600px",
+                          lineHeight: "1.6",
+                          fontWeight: "400",
+                        },
+                      },
+                      "A Sacred Digital Temple Experience",
+                    ),
+                    // Loading Progress
+                    !isLoaded &&
+                      React.createElement(
+                        React.Fragment,
+                        null,
+                        React.createElement(
+                          "div",
+                          {
+                            style: {
+                              width: "min(400px, 80vw)",
+                              height: "8px",
+                              background: "rgba(255, 255, 255, 0.1)",
+                              borderRadius: "20px",
+                              marginBottom: "20px",
+                              overflow: "hidden",
+                              backdropFilter: "blur(20px)",
+                              border: "1px solid rgba(255, 255, 255, 0.1)",
+                            },
+                          },
+                          React.createElement("div", {
+                            style: {
+                              width: `${loadingProgress}%`,
+                              height: "100%",
+                              background: "linear-gradient(90deg, #ffd700, #ffaa00, #ff8c00)",
+                              borderRadius: "20px",
+                              transition: "width 0.6s cubic-bezier(0.4, 0, 0.2, 1)",
+                              boxShadow: "0 0 20px rgba(255, 215, 0, 0.6)",
+                            },
+                          }),
+                        ),
+                        React.createElement(
+                          "div",
+                          {
+                            style: {
+                              fontSize: "28px",
+                              fontWeight: "600",
+                              marginBottom: "20px",
+                              fontFeatureSettings: "'tnum'",
+                            },
+                          },
+                          `${Math.round(loadingProgress)}%`,
+                        ),
+                        // Loading Messages
+                        React.createElement(
+                          "div",
+                          {
+                            style: {
+                              minHeight: "120px",
+                              display: "flex",
+                              flexDirection: "column",
+                              alignItems: "center",
+                              justifyContent: "center",
+                            },
+                          },
+                          loadingMessages.map((message, index) =>
+                            React.createElement(
+                              "div",
+                              {
+                                key: index,
+                                style: {
+                                  fontSize: "16px",
+                                  opacity: index === loadingMessages.length - 1 ? 1 : 0.6,
+                                  marginBottom: "8px",
+                                  textAlign: "center",
+                                  animation:
+                                    index === loadingMessages.length - 1
+                                      ? "fadeInUp 0.6s cubic-bezier(0.4, 0, 0.2, 1)"
+                                      : "none",
+                                  fontWeight: "500",
+                                },
+                              },
+                              message,
+                            ),
+                          ),
+                        ),
+                      ),
+                    // Sacred Spell Input
+                    showEnterButton &&
+                      React.createElement(
+                        "div",
+                        {
+                          style: {
+                            display: "flex",
+                            flexDirection: "column",
+                            alignItems: "center",
+                            gap: "24px",
+                            animation: "fadeInUp 0.8s cubic-bezier(0.4, 0, 0.2, 1)",
+                          },
+                        },
+                        React.createElement(
+                          "div",
+                          {
+                            style: {
+                              fontSize: "20px",
+                              fontWeight: "600",
+                              textAlign: "center",
+                              marginBottom: "8px",
+                              background: "linear-gradient(135deg, #ffd700 0%, #ffaa00 100%)",
+                              WebkitBackgroundClip: "text",
+                              WebkitTextFillColor: "transparent",
+                              backgroundClip: "text",
+                            },
+                          },
+                          "✨ Speak the Sacred Incantation ✨",
+                        ),
+                        React.createElement(
+                          "div",
+                          { style: { 
+  position: "relative", 
+  width: "min(400px, 80vw)" } },
+                          React.createElement("input", {
+                            type: "text",
+                            value: spellInput,
+                            onChange: handleSpellChange,
+                            placeholder: "Enter your magical spell...",
+                            style: {
+                              width: "100%",
+                              padding: "20px 24px",
+                              fontSize: "18px",
+                              fontFamily: "inherit",
+                              background: "rgba(255, 255, 255, 0.05)",
+                              backdropFilter: "blur(20px)",
+                              border: `2px solid ${isSpellValid ? "#00ff88" : "rgba(255, 215, 0, 0.3)"}`,
+                              borderRadius: "16px",
+                              color: "#ffd700",
+                              outline: "none",
+                              transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+                              textAlign: "center",
+                              fontWeight: "500",
+                              boxShadow: isSpellValid
+                                ? "0 0 30px rgba(0, 255, 136, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1)"
+                                : "0 0 20px rgba(255, 215, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.1)",
+                            },
+                            onFocus: (e) => {
+                              e.target.style.borderColor = isSpellValid ? "#00ff88" : "#ffd700";
+                              e.target.style.boxShadow = isSpellValid
+                                ? "0 0 40px rgba(0, 255, 136, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2)"
+                                : "0 0 30px rgba(255, 215, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2)";
+                            },
+                            onBlur: (e) => {
+                              e.target.style.borderColor = isSpellValid ? "#00ff88" : "rgba(255, 215, 0, 0.3)";
+                              e.target.style.boxShadow = isSpellValid
+                                ? "0 0 30px rgba(0, 255, 136, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1)"
+                                : "0 0 20px rgba(255, 215, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.1)";
+                            },
+                          }),
+                          // Spell validation indicator
+                          spellInput &&
+                            React.createElement(
+                              "div",
+                              {
+                                style: {
+                                  position: "absolute",
+                                  right: "16px",
+                                  top: "50%",
+                                  transform: "translateY(-50%)",
+                                  fontSize: "24px",
+                                  animation: isSpellValid ? "bounce 0.6s ease" : "shake 0.5s ease",
+                                },
+                              },
+                              isSpellValid ? "✅" : "🔮",
+                            ),
+                        ),
+                        // Spell hint
+                        showSpellHint &&
+                          !isSpellValid &&
+                          React.createElement(
+                            "div",
+                            {
+                              style: {
+                                fontSize: "14px",
+                                color: "rgba(255, 215, 0, 0.7)",
+                                textAlign: "center",
+                                fontStyle: "italic",
+                                animation: "fadeIn 0.3s ease",
+                                maxWidth: "300px",
+                              },
+                            },
+                            "💡 Hint: Try words related to blessed bread, holy toast, or sacred crumbs...",
+                          ),
+                        // Enhanced Enter Button
+                        React.createElement(
+                          "button",
+                          {
+                            onClick: handleEnterExperience,
+                            disabled: !isSpellValid,
+                            style: {
+                              padding: "20px 40px",
+                              fontSize: "20px",
+                              fontWeight: "600",
+                              fontFamily: "inherit",
+                              background: isSpellValid
+                                ? "linear-gradient(135deg, rgba(0, 255, 136, 0.2) 0%, rgba(0, 200, 100, 0.3) 100%)"
+                                : "rgba(255, 255, 255, 0.05)",
+                              color: isSpellValid ? "#00ff88" : "rgba(255, 215, 0, 0.4)",
+                              border: `2px solid ${isSpellValid ? "#00ff88" : "rgba(255, 215, 0, 0.2)"}`,
+                              borderRadius: "16px",
+                              cursor: isSpellValid ? "pointer" : "not-allowed",
+                              textTransform: "uppercase",
+                              letterSpacing: "1px",
+                              transition: "all 0.4s cubic-bezier(0.4, 0, 0.2, 1)",
+                              backdropFilter: "blur(20px)",
+                              boxShadow: isSpellValid
+                                ? "0 8px 32px rgba(0, 255, 136, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1)"
+                                : "0 4px 16px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.05)",
+                              transform: isSpellValid ? "translateY(-2px)" : "translateY(0)",
+                              opacity: isSpellValid ? 1 : 0.6,
+                            },
+                            onMouseEnter: (e) => {
+                              if (isSpellValid) {
+                                e.currentTarget.style.transform = "translateY(-4px) scale(1.02)";
+                                e.currentTarget.style.boxShadow =
+                                  "0 12px 40px rgba(0, 255, 136, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2)";
+                              }
+                            },
+                            onMouseLeave: (e) => {
+                              if (isSpellValid) {
+                                e.currentTarget.style.transform = "translateY(-2px) scale(1)";
+                                e.currentTarget.style.boxShadow =
+                                  "0 8px 32px rgba(0, 255, 136, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1)";
+                              }
+                            },
+                          },
+                          isSpellValid ? "✨ Enter Sacred Temple ✨" : "🔒 Spell Required",
+                        ),
+                        // Quirky fun fact
+                        React.createElement(
+                          "div",
+                          {
+                            style: {
+                              fontSize: "12px",
+                              color: "rgba(255, 215, 0, 0.5)",
+                              textAlign: "center",
+                              fontStyle: "italic",
+                              marginTop: "16px",
+                            },
+                          },
+                          "🎭 Fun fact: This temple has been blessed by 42,069 digital pilgrims",
+                        ),
+                      ),
+                  )
+                : /* Cinematic Entrance Sequence */
+                  React.createElement(
+                    "div",
+                    {
+                      style: {
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        textAlign: "center",
+                      },
+                    },
+                    React.createElement(
+                      "div",
+                      {
+                        style: {
+                          fontSize: "clamp(80px, 15vw, 200px)",
+                          marginBottom: "40px",
+                          textShadow: "0 0 50px rgba(255, 215, 0, 1), 0 0 100px rgba(255, 215, 0, 0.6)",
+                          animation: "cinematicFloat 2s ease-in-out infinite, cinematicGlow 1s ease-in-out infinite alternate",
+                          transform: `scale(${1 + cinematicPhase * 0.2}) rotate(${cinematicPhase * 5}deg)`,
+                          transition: "transform 1s cubic-bezier(0.4, 0, 0.2, 1)",
+                        },
+                      },
+                      "🍞",
+                    ),
+                    React.createElement(
+                      "div",
+                      {
+                        style: {
+                          fontSize: "clamp(24px, 6vw, 48px)",
+                          fontWeight: "700",
+                          background: "linear-gradient(135deg, #ffd700 0%, #ffaa00 50%, #ff8c00 100%)",
+                          WebkitBackgroundClip: "text",
+                          WebkitTextFillColor: "transparent",
+                          backgroundClip: "text",
+                          marginBottom: "20px",
+                          animation: "cinematicPulse 1.5s ease-in-out infinite",
+                        },
+                      },
+                      [
+                        "Validating sacred incantation...",
+                        "Opening dimensional portal...",
+                        "Aligning celestial bread slices...",
+                        "Summoning the holy presence...",
+                        "Entering the sacred realm...",
+                      ][cinematicPhase],
+                    ),
+                    React.createElement(
+                      "div",
+                      {
+                        style: {
+                          width: "min(300px, 60vw)",
+                          height: "4px",
+                          background: "rgba(255, 255, 255, 0.1)",
+                          borderRadius: "20px",
+                          overflow: "hidden",
+                          marginTop: "20px",
+                        },
+                      },
+                      React.createElement("div", {
+                        style: {
+                          width: `${(cinematicPhase + 1) * 20}%`,
+                          height: "100%",
+                          background: "linear-gradient(90deg, #00ff88, #00cc66)",
+                          borderRadius: "20px",
+                          transition: "width 1s cubic-bezier(0.4, 0, 0.2, 1)",
+                          boxShadow: "0 0 20px rgba(0, 255, 136, 0.6)",
+                        },
+                      }),
+                    ),
+                  ),
+            ),
+        );
+      }
+      // Enhanced root component with error boundary
+const container = document.getElementById("root");
+if (container) {
+  const root = createRoot(container);
+  root.render(
+    React.createElement(
+      ErrorBoundary,
+      null,
+      React.createElement(CheesusCrust)
+    )
+  );
+} else {
+  console.error("🍞 Root container not found!");
+}
+// Enhanced Mobile Optimization
+class MobileOptimizer {
+  constructor() {
+    this.isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    this.isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    this.pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+    this.screenSize = Math.max(window.screen.width, window.screen.height);
+    
+    console.log("📱 Mobile: Detected device -", {
+      isMobile: this.isMobile,
+      isIOS: this.isIOS,
+      pixelRatio: this.pixelRatio,
+      screenSize: this.screenSize
+    });
+  }
+  getOptimizedSettings() {
+    if (!this.isMobile) {
+      return {
+        shadowMapSize: 2048,
+        particleCount: 800,
+        bloomStrength: 1.0,
+        antiAlias: true,
+        pixelRatio: Math.min(this.pixelRatio, 2),
+      };
+    }
+    // Mobile optimizations
+    return {
+      shadowMapSize: this.screenSize > 1024 ? 1024 : 512,
+      particleCount: this.screenSize > 1024 ? 300 : 150,
+      bloomStrength: 0.6,
+      antiAlias: false,
+      pixelRatio: Math.min(this.pixelRatio, 1.5),
+    };
+  }
+  optimizeForMobile() {
+    if (!this.isMobile) return;
+    // Disable hover effects on mobile
+    const style = document.createElement('style');
+    style.textContent = `
+      @media (hover: none) {
+        button:hover {
+          transform: none !important;
+          box-shadow: none !important;
+        }
+        input:hover {
+          transform: none !important;
+          border-color: inherit !important;
+        }
+      }
+    `;
+    document.head.appendChild(style);
+    // Add touch-friendly styles
+    document.body.style.touchAction = 'pan-x pan-y';
+    document.body.style.webkitTouchCallout = 'none';
+    document.body.style.webkitUserSelect = 'none';
+  }
+} 
+    </script>
+  </body>
+</html> 
